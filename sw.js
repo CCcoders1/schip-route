@@ -1,9 +1,9 @@
 // Service worker: alles offline beschikbaar (cache-first + achtergrond-update) + Background Sync voor de outbox.
 importScripts('./js/outbox-core.js');
-const VERSION = 'schiproute-v1.7.0';
+const VERSION = 'schiproute-v1.8.0';
 const ASSETS = [
   './', './index.html', './manifest.webmanifest', './css/app.css',
-  './js/app.js', './js/outbox-core.js', './js/i18n.js', './js/i18n-dict.js', './js/marad.js', './js/maint.js', './js/suggest.js', './vendor/xlsx.mini.min.js', './data/marad.enc.json', './js/store.js', './js/seed.js', './js/planner.js', './js/share.js', './js/shipmap.js',
+  './js/app.js', './js/outbox-core.js', './js/i18n.js', './js/i18n-dict.js', './js/marad.js', './js/maint.js', './js/oil.js', './js/suggest.js', './vendor/xlsx.mini.min.js', './data/marad.enc.json', './js/store.js', './js/seed.js', './js/planner.js', './js/share.js', './js/shipmap.js',
   './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png', './icons/apple-touch-icon.png',
 ];
 self.addEventListener('install', (e) => {

@@ -329,3 +329,36 @@ h3.sec.red { color: var(--warn); } h3.sec.orange { color: #ef6c00; }
 .weeknav b { font-size: 1.2rem; } .weeknav small { color: var(--muted); flex: 1; text-align: center; }
 .mstats.wstats > div { display: flex; flex-direction: column; align-items: center; padding: 8px 4px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; }
 .mstats.wstats b { font-size: 1.5rem; } .mstats.wstats small { font-size: .72rem; text-align: center; }
+
+/* ---------- v1.8: olie ---------- */
+#nav button { font-size: .68rem; }
+.oilacts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0; }
+.seg.wrap.oilseg { flex-wrap: wrap; } .seg.oilseg button { flex: 1 1 30%; min-height: 44px; font-size: .85rem; }
+.nb { background: var(--warn); color: #fff; border-radius: 10px; padding: 0 6px; font-size: .75rem; margin-left: 2px; }
+.card.oil { border-left: 6px solid var(--ok); cursor: pointer; } .card.oil.low { border-left-color: var(--warn); background: color-mix(in srgb, var(--warn) 7%, var(--card)); }
+.card.oil .ohead, .card.oilloc .ohead, .card.mach .ohead, .card.hrs .ohead { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.oiltot { font-size: 1.25rem; font-weight: 800; white-space: nowrap; } .card.oil.low .oiltot { color: var(--warn); } .oiltot.stale { color: var(--muted); font-style: italic; }
+.alias { display: block; color: var(--muted); }
+ul.oillist { list-style: none; margin: 6px 0; padding: 0; } ul.oillist li { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 10px 4px; border-bottom: 1px solid var(--line); cursor: pointer; }
+ul.oillist li span { display: flex; flex-direction: column; } ul.oillist li small { color: var(--muted); }
+.invrow { border: 2px solid var(--line); border-radius: 12px; margin: 6px 0; background: var(--card); } .invrow.on { border-color: var(--ok); }
+.invtog { display: flex; gap: 10px; align-items: center; width: 100%; text-align: left; background: none; border: 0; color: var(--fg); font: inherit; padding: 10px; min-height: 52px; cursor: pointer; }
+.invtog span:last-child { display: flex; flex-direction: column; } .invtog small { color: var(--muted); }
+.invtog .box { flex: 0 0 28px; height: 28px; border: 2px solid var(--line); border-radius: 8px; display: grid; place-items: center; font-weight: 800; color: #fff; }
+.invrow.on .invtog .box, .invtog.on .box { background: var(--ok); border-color: var(--ok); }
+#oaList .invtog { border: 2px solid var(--line); border-radius: 12px; margin: 4px 0; } #oaList .invtog.on { border-color: var(--ok); }
+.invin { display: grid; grid-template-columns: 1.3fr .8fr 1fr; gap: 6px; padding: 0 10px 10px; } .invrow.new .invin { grid-template-columns: 1fr 1fr; }
+.invin input, .invin select { min-height: 44px; font-size: 1rem; min-width: 0; }
+.invin.big { padding: 0; grid-template-columns: 1fr; }
+.hrsrow { display: grid; grid-template-columns: 1.2fr 1.2fr auto; gap: 6px; } .hrsrow input { min-height: 44px; min-width: 0; font-size: 1rem; }
+.card.mach.warnc { border-left: 6px solid var(--warn); }
+svg.oilchart { width: 100%; height: auto; display: block; margin: 8px 0 2px; background: var(--bg); border-radius: 10px; }
+svg.oilchart .ax { stroke: var(--line); stroke-width: 1; } svg.oilchart .bar { fill: var(--pri); opacity: .45; }
+svg.oilchart polyline.rate { fill: none; stroke: var(--acc); stroke-width: 2.5; } svg.oilchart circle.rate { fill: var(--acc); }
+svg.oilchart polyline.ma { fill: none; stroke: var(--ok); stroke-width: 2; stroke-dasharray: 5 4; }
+svg.oilchart .lbl { font-size: 10px; fill: var(--muted); }
+p.legend { font-size: .75rem; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; margin: 0 0 6px; }
+.olg { display: inline-block; width: 14px; height: 8px; border-radius: 2px; margin-right: 3px; vertical-align: middle; } .olg.bar { background: var(--pri); opacity: .45; } .olg.rate { background: var(--acc); } .olg.ma { background: none; border-top: 2px dashed var(--ok); height: 0; }
+table.otab { width: 100%; border-collapse: collapse; font-size: .85rem; } table.otab td, table.otab th { padding: 4px; border-bottom: 1px solid var(--line); text-align: left; }
+.card.oilcrew { border-left: 6px solid var(--acc); } .card.oilcrew .btn.huge { margin: 6px 0 10px; } .card.oilcrew .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.oilfld .btn { width: 100%; }

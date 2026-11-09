@@ -24,8 +24,10 @@ export async function decodePayload(str) {
   const bytes = kind === 'z' ? await pipe(data, new DecompressionStream('deflate-raw')) : data;
   return JSON.parse(new TextDecoder().decode(bytes));
 }
+export const hooks = { beforePackage: null }; // o.a. olie: actuele olielijst meegeven aan routes met olie-velden
 // Bundel route + gebruikte locaties/dekken, zodat de ontvanger alles heeft.
 export function routePackage(state, r, to = '') {
+  hooks.beforePackage?.(r);
   const used = new Set(r.steps.map((s) => s.locationId));
   const locations = state.locations.filter((l) => used.has(l.id));
   const decks = state.decks.filter((d) => locations.some((l) => l.deck === d.id));

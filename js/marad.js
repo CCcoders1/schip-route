@@ -187,6 +187,7 @@ export function mergeMarad(maint, parsed, opts = {}) {
   m.tasks ||= []; m.components ||= {}; m.signoffs ||= [];
   if (parsed.ship) m.ship = parsed.ship;
   if (parsed.fixedRounds) m.fixedRounds = parsed.fixedRounds;
+  if (parsed.oil) m.oilRef = parsed.oil; // olie-stamdata (alleen uit de versleutelde bundel); voorraad/historie staat in m.oil
   if (parsed.bundleRev) m.bundleRev = parsed.bundleRev; // vaste rondes (alleen uit de versleutelde bundel)
   Object.assign(m.components, parsed.components);
   const byId = new Map(m.tasks.map((x) => [x.id, x]));

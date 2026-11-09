@@ -64,7 +64,7 @@ const $f = (s) => document.querySelector(s);
 const knownLocIds = () => new Set(A.state.locations.map((l) => l.id));
 const autoLoc = (task, c) => { const ids = knownLocIds(); return autoLocation(task, c, ids) || (task.locHint && ids.has(task.locHint) ? task.locHint : null); };
 /** Versie van de versleutelde bundel die bij deze app hoort (vaste rondes + locatie-hints). */
-export const BUNDLE_REV = 2;
+export const BUNDLE_REV = 3;
 export const needsReunlock = () => !!M()?.tasks && M().source === 'encrypted' && (M().bundleRev || 1) < BUNDLE_REV;
 export const slimDefault = () => (A.state.settings.orderDir === 'av' ? 'slimAV' : 'slimVA');
 // v1.3 bewaarde (onversleutelde begindata) in localStorage. Alleen bewaren als de gebruiker er zelf iets mee deed.
@@ -95,7 +95,7 @@ function afterLoad(announce = true) {
 /** Rapporten die binnenkwamen toen MARAD vergrendeld was alsnog afmelden (dubbel wordt overgeslagen). */
 export function applyPending() {
   if (!M()?.tasks) return 0; let n = 0;
-  for (const run of A.state.runs) if (run.received && !run.maradApplied && run.results?.some((r) => r.marad)) { const r = applyRun(run); run.maradDone = (run.maradDone || 0) + r.done; run.maradApplied = true; n += r.done; }
+  for (const run of A.state.runs) if (run.received && !run.maradApplied && run.results?.some((r) => r.marad || (r.fields || []).some((f) => f.type === 'oil' || f.type === 'oilinv'))) { const r = applyRun(run); run.maradDone = (run.maradDone || 0) + r.done; run.maradApplied = true; n += r.done; }
   if (n) A.save();
   return n;
 }
@@ -182,6 +182,7 @@ export function maradFields(task) {
 /** Verwerkt een afgeronde ronde (eigen of geïmporteerd rapport): gekoppelde MARAD-taken afmelden. */
 export function applyRun(run) {
   const m = M(); const out = { done: 0, notDone: 0, missing: 0, dup: 0 };
+  if (m?.tasks) out.oil = A.oilApply?.(run) || 0; // olie-registraties uit de ronde (idempotent)
   if (!m?.tasks) return out;
   for (const r of run.results || []) {
     const mid = r.marad?.id || r.marad;

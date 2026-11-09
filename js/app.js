@@ -1,11 +1,12 @@
 import { state, save, rid, loc, deck, route, getPlan, setPlan, delPlan, replaceState, resetAll, randomTopic, legacyMaint } from './store.js';
 import { STRATEGIES, orderSteps } from './planner.js';
 import { routePackage, buildShareLink, readHashPayload, reportPackage } from './share.js';
+import { initOil } from './oil.js';
 import { initMaint } from './maint.js';
 import { shipSVG, svgPointToLoc, VIEWS } from './shipmap.js';
 import { t, tx, setTx, getLang, setLang, LANGS, LOCALES } from './i18n.js';
 
-const APP_VERSION = '1.7.0';
+const APP_VERSION = '1.8.0';
 const OB = self.OutboxCore;
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -17,7 +18,7 @@ const plural = (n, a, b) => `${n} ${n === 1 ? a : b}`;
 // Modus: 'beheer' (manager: alles) of 'bemanning' (crew: ontvangen routes, ronde, vragen, observaties, outbox).
 const isCrew = () => state.settings.mode === 'bemanning';
 const CREW_TABS = ['routes', 'meer'];
-const BEHEER_TABS = ['vandaag', 'onderhoud', 'routes', 'meldingen'];
+const BEHEER_TABS = ['vandaag', 'onderhoud', 'olie', 'routes', 'meldingen'];
 
 let view = { tab: '', mel: 'msgs', routeId: null, runId: null, mapMode: 'side', mapRoute: '', placing: null, hist: 'runs' };
 // iPhone/iPad (ook iPadOS die zich als Mac voordoet) en of de app vanaf het beginscherm draait
@@ -97,13 +98,13 @@ function render() {
   if (isCrew()) view.routeId = null;
   document.body.classList.toggle('crew', isCrew());
   $$('#nav button').forEach((b) => { b.classList.toggle('on', b.dataset.tab === view.tab); b.hidden = isCrew() || !BEHEER_TABS.includes(b.dataset.tab); });
-  const NAVL = { vandaag: t('Vandaag'), meldingen: t('Meldingen'), routes: isCrew() ? t('Mijn routes') : t('Rondes'), onderhoud: t('Onderhoud'), kaart: t('Kaart'), locaties: t('Locaties'), historie: t('Historie'), meer: t('Meer') };
+  const NAVL = { olie: t('Olie'), vandaag: t('Vandaag'), meldingen: t('Meldingen'), routes: isCrew() ? t('Mijn routes') : t('Rondes'), onderhoud: t('Onderhoud'), kaart: t('Kaart'), locaties: t('Locaties'), historie: t('Historie'), meer: t('Meer') };
   $$('#nav button').forEach((b) => { b.lastChild.textContent = NAVL[b.dataset.tab]; });
   const nb = $('#nav button[data-tab=meldingen]'); const un = isCrew() ? 0 : unseenCount() + unseenMsgs();
   let bd = nb.querySelector('.nbadge'); if (!bd) { bd = document.createElement('b'); bd.className = 'nbadge'; nb.prepend(bd); }
   bd.textContent = un > 99 ? '99+' : un; bd.hidden = !un; nb.setAttribute('aria-label', NAVL.meldingen + (un ? ' – ' + t('{n} ongelezen', { n: un }) : ''));
   const fn = {
-    vandaag: viewToday, meldingen: viewMeldingen,
+    vandaag: viewToday, meldingen: viewMeldingen, olie: () => OIL.view(),
     routes: isCrew() ? viewCrewRoutes : view.routeId ? viewRoute : viewRoutes,
     onderhoud: MT.view,
     kaart: viewMap, locaties: viewLocations,
@@ -165,7 +166,7 @@ function appMenu() {
 // ---------- Meldingen (Beheer) ----------
 const inbox = () => (state.inbox ||= []);
 function unseenMsgs() { return inbox().filter((m) => !m.seenAt).length; }
-const MK = () => ({ vraag: ['❓', t('Vraag')], observatie: ['👁', t('Observatie')], nietok: ['✖', t('Niet OK')], urgent: ['🚨', t('Urgent')] });
+const MK = () => ({ olie: ['🛢', t('Olie')], vraag: ['❓', t('Vraag')], observatie: ['👁', t('Observatie')], nietok: ['✖', t('Niet OK')], urgent: ['🚨', t('Urgent')] });
 function melFilter() { return view.melF || 'all'; }
 function viewMeldingen() {
   const un = unseenMsgs(), uo = unseenCount();
@@ -398,6 +399,7 @@ function optLabel(f, o, k) { const L = getLang(); return (L !== 'nl' && f.tr?.[L
 function fmtVal(f, v) {
   if (v === undefined || v === null || v === '') return '—';
   if (f.type === 'check') return v ? t('Ja') : t('Nee');
+  if (f.type === 'oil' || f.type === 'oilinv') return OIL.fmtValue(f, v);
   if (f.type === 'choice') { const k = (f.options || []).indexOf(v); return k >= 0 ? optLabel(f, v, k) : v; }
   return `${v}${f.unit ? ' ' + f.unit : ''}`;
 }
@@ -486,7 +488,7 @@ function bindDrag(list, onDone) {
 }
 
 // ---------- taak-editor ----------
-const FIELD_TYPES = { number: t('Getal / meting'), text: t('Tekst'), check: t('Ja / nee'), choice: t('Keuze') };
+const FIELD_TYPES = { number: t('Getal / meting'), text: t('Tekst'), check: t('Ja / nee'), choice: t('Keuze'), oil: t('🛢 Olie bijvullen') };
 let editLang = getLang();
 const txIn = (o, k, L) => (L === 'nl' ? o?.[k] : o?.tr?.[L]?.[k]) || '';
 function taskEditorHTML() {
@@ -707,6 +709,7 @@ function runMap(ar, l) {
   return shipSVG({ view: ar.mapView || 'side', locations: locs, highlight: l.id, dim: true });
 }
 function fieldInput(f, v, oor) {
+  if (f.type === 'oil' || f.type === 'oilinv') return OIL.fieldHTML(f, v);
   const req = f.required ? ' <i>*</i>' : '';
   if (f.type === 'number') {
     const rng = f.min != null || f.max != null ? `<small>${f.min ?? '…'} – ${f.max ?? '…'} ${esc(f.unit || '')}</small>` : '';
@@ -1234,7 +1237,8 @@ addEventListener('online', () => setTimeout(() => flushNow(), 800));
 setInterval(() => { if (outboxPending && navigator.onLine) flushNow(); }, 30000);
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { if (outboxPending) flushNow(); maybePoll(); } });
 // iPhone/Safari heeft geen Background Sync: versturen bij openen, terugkeren naar de app en focus.
-addEventListener('focus', () => { if (outboxPending) flushNow(); });
+addEventListener('focus', () => { if (outboxPending) flushNow(); maybePoll(); });
+addEventListener('online', () => setTimeout(maybePoll, 1500));
 addEventListener('pageshow', () => { if (outboxPending) flushNow(); });
 navigator.serviceWorker?.addEventListener('message', (e) => { if (e.data?.type === 'outbox') refreshOutbox(); });
 
@@ -1289,7 +1293,7 @@ function viewCrewRoutes() {
     h += `<article class="card route"><div class="tap" data-act="openRoute" data-id="${r.id}"><h2>${esc(tx(r, 'name'))}</h2><p>${plural(r.steps.length, t('taak'), t('taken'))} · ${plural(nLoc, t('locatie'), t('locaties'))}${r.from ? ` · ${t('van {name}', { name: `<b>${esc(r.from)}</b>` })}` : ''}</p>${r.description ? `<p class="muted">${esc(tx(r, 'description'))}</p>` : ''}</div>
       <div class="stack"><button class="btn ok big" data-act="startRun" data-id="${r.id}" ${r.steps.length ? '' : 'disabled'}>${t('▶ Start ronde')}</button></div></article>`;
   }
-  h += `</div><div class="row crewimp"><button class="btn small ghost" data-act="pasteRoute">${t('📋 Route plakken')}</button><button class="btn small ghost" data-act="importFile">${t('📥 Route-bestand')}</button></div>`;
+  h += `</div>` + OIL.crewCard() + `<div class="row crewimp"><button class="btn small ghost" data-act="pasteRoute">${t('📋 Route plakken')}</button><button class="btn small ghost" data-act="importFile">${t('📥 Route-bestand')}</button></div>`;
   return h;
 }
 function crewRunsHTML() {
@@ -1401,6 +1405,7 @@ function importReport(pkg, via = 'link') {
 }
 /** Rapport direct importeren (link geopend, geplakt, bestand of meldingskanaal) en de pagina "Door anderen" tonen. */
 async function autoImportReport(pkg, via = 'link', quiet = false) {
+  if (pkg?.oilOnly && !isCrew()) return importOilPkg(pkg, via, quiet);
   if (isCrew()) { toast(t('Rapporten importeren kan alleen in Beheer-modus (Meer → Modus).'), 4500); return false; }
   if (!pkg?.runId || !Array.isArray(pkg.results)) { if (!quiet) toast(t('Geen geldig rapport gevonden')); return false; }
   if (state.runs.some((x) => x.id === pkg.runId)) { if (!quiet) { toast(t('Dit rapport is al geïmporteerd.')); closeSheet(); go('historie', { hist: 'others' }); } return false; }
@@ -1408,6 +1413,37 @@ async function autoImportReport(pkg, via = 'link', quiet = false) {
   const m = importReport(pkg, via);
   if (!quiet) { closeSheet(); toast(m.done ? t('Rapport van {name} geïmporteerd · {n} MARAD-taken afgemeld', { name: pkg.by || '?', n: m.done }) : t('Rapport van {name} geïmporteerd', { name: pkg.by || '?' }), 4000); go('historie', { hist: 'others' }); }
   return true;
+}
+/** Olie-registratie van de bemanning (via ntfy, link of plakken): direct verwerken in voorraad en verbruik. Idempotent via de unieke id's. */
+async function importOilPkg(pkg, via, quiet) {
+  state.oilSeen ||= [];
+  if (state.oilSeen.includes(pkg.runId)) { if (!quiet) toast(t('Deze olie-registratie is al verwerkt.')); return false; }
+  await MT.ensureMaint();
+  let n = 0;
+  if (state.maint?.oilRef) n = OIL.ingest(pkg.oilEvents || []); else (state.oilPending ||= []).push(pkg);
+  state.oilSeen.push(pkg.runId); if (state.oilSeen.length > 500) state.oilSeen = state.oilSeen.slice(-500);
+  if (!inbox().some((x) => x.id === 'oil:' + pkg.runId)) inbox().push({ id: 'oil:' + pkg.runId, kind: 'olie', title: pkg.title || pkg.routeName, message: pkg.summary || '', time: pkg.finishedAt || new Date().toISOString(), by: pkg.by || '', via, applied: n, photos: [] });
+  save();
+  if (!quiet) { closeSheet(); toast(state.maint?.oilRef ? t('Olie-registratie van {name} verwerkt', { name: pkg.by || '?' }) : t('Olie-registratie ontvangen – wordt verwerkt na ontgrendelen'), 4000); go('olie'); }
+  return 'oil';
+}
+/** Bemanning: olie-registratie via de outbox naar het meldingskanaal (offline: wachtrij). Zonder kanaal: delen via WhatsApp. */
+async function sendOil(ev, sum) {
+  const st = state.settings; const name = ev.by || st.userName || 'bemanning';
+  (state.oilLog ||= []).push(ev); if (state.oilLog.length > 200) state.oilLog = state.oilLog.slice(-200); save();
+  const pkg = { app: 'schiproute', kind: 'report', v: 1, oilOnly: true, runId: 'oil-' + ev.id, routeName: 'Olie', title: sum.title, summary: sum.text, ship: state.shipName, by: name, startedAt: ev.at, finishedAt: ev.at, lang: st.lang || 'nl', results: [], messages: [], oilEvents: [ev] };
+  const link = await buildShareLink(pkg);
+  const ar = state.activeRun; const topic = ar?.route.notifyTopic || st.ntfyTopic;
+  if (!topic) {
+    const txt = `${sum.title}\n${sum.text}\n${link}`;
+    openSheet(`<h2>🛢 ${t('Opgeslagen')}</h2><p class="warnbox">${t('Er is geen meldingskanaal ingesteld. Stuur deze registratie via WhatsApp naar de beheerder:')}</p><div class="stack"><a class="btn wa big" href="https://wa.me/?text=${encodeURIComponent(txt)}" target="_blank" rel="noopener">🟢 WhatsApp</a></div>`);
+    return;
+  }
+  /* i18n-skip-start */
+  const item = { id: 'm-' + rid(), kind: 'olie', createdAt: ev.at, by: name, text: sum.text, title: sum.title, message: `${sum.text}\n\n🕒 ${fmtDT(ev.at)}\n👤 ${name}\n🚢 ${state.shipName}`, priority: 3, tags: ['droplet', 'ship'], click: link, topic, server: (ar?.route.notifyTopic && ar.route.notifyServer) || st.ntfyServer || 'https://ntfy.sh', status: 'pending', photos: [] };
+  /* i18n-skip-end */
+  await queueItem(item);
+  if (navigator.onLine) toast(t('Verstuurd naar Beheer: {s}', { s: sum.short }), 3500);
 }
 /* Rapporten ophalen uit het eigen ntfy-kanaal (bericht met link of .json-bijlage). ntfy.sh bewaart berichten ±12 uur, bijlagen ±3 uur. */
 let polling = false;
@@ -1444,14 +1480,14 @@ async function pollNtfy(manual = false) {
         if (m.click && /report=/.test(m.click)) pkg = await readHashPayload(m.click);
         else if (m.attachment?.url && /^rapport-.*\.json$/i.test(m.attachment.name || '')) { const a = await fetch(m.attachment.url); if (a.ok) pkg = await a.json(); }
       } catch (e) { console.warn('ntfy-rapport', e); }
-      if (pkg?.kind === 'report') { seen++; if (await autoImportReport(pkg, 'ntfy', true)) n++; }
+      if (pkg?.kind === 'report') { seen++; const ok = await autoImportReport(pkg, 'ntfy', true); if (ok === 'oil') nMsg++; else if (ok) n++; }
     }
     if (msgs.length) st.ntfyPollId = msgs[msgs.length - 1].id;
     st.ntfyPolledAt = new Date().toISOString(); save();
     if (inbox().length > 300) state.inbox = inbox().slice(-300);
     if (nMsg) save();
     if (manual || n || nMsg) toast([n ? t('{n} nieuw(e) rapport(en) opgehaald', { n }) : '', nMsg ? t('{n} nieuwe melding(en)', { n: nMsg }) : ''].filter(Boolean).join(' · ') || (seen ? t('Geen nieuwe rapporten (al geïmporteerd)') : t('Niets nieuws in het meldingskanaal (ntfy bewaart berichten ±12 uur)')), 3500);
-    if (n || nMsg || ['historie', 'meldingen', 'vandaag'].includes(view.tab)) render();
+    if (n || nMsg || ['historie', 'meldingen', 'vandaag', 'olie'].includes(view.tab)) render();
   } catch (e) { console.warn(e); if (manual) toast(t('Ophalen lukte niet: {msg}', { msg: e.message }), 4000); }
   finally { polling = false; }
   return n;
@@ -1497,7 +1533,7 @@ Object.assign(actions, {
   iosUseHere: () => { const { pkg } = sheetCtx.iosLink; closeSheet(); if (pkg.kind === 'route') importSheet(pkg); else autoImportReport(pkg, 'link'); },
 });
 let lastPoll = 0;
-function maybePoll() { if (!isCrew() && navigator.onLine && Date.now() - lastPoll > 60000) { lastPoll = Date.now(); pollNtfy(false); } }
+function maybePoll() { if (!isCrew() && navigator.onLine && Date.now() - lastPoll > 20000) { lastPoll = Date.now(); pollNtfy(false); } }
 Object.assign(actions, {
   goTab: (a) => { closeSheet(); go(a.dataset.v); if (a.dataset.v === 'meldingen') maybePoll(); },
   appMenu: () => appMenu(),
@@ -1511,8 +1547,10 @@ Object.assign(actions, {
 });
 
 // ---------- onderhoud (MARAD) ----------
-const MT = initMaint({ legacyMaint, state, save, rid, esc, header, openSheet, closeSheet, toast, render: () => render(), go: (...x) => go(...x), shareFile, csvCell, fmtDT, plural, locSelect, loc, tx, STRATEGIES, orderSteps, waNum: (p) => waNum(p), buildShareLink, routePackage, openShare: (r) => openShare(r) });
+const MT = initMaint({ oilApply: (run) => OIL.applyRun(run), legacyMaint, state, save, rid, esc, header, openSheet, closeSheet, toast, render: () => render(), go: (...x) => go(...x), shareFile, csvCell, fmtDT, plural, locSelect, loc, tx, STRATEGIES, orderSteps, waNum: (p) => waNum(p), buildShareLink, routePackage, openShare: (r) => openShare(r) });
 Object.assign(actions, MT.actions);
+const OIL = initOil({ state, save, rid, esc, header, openSheet, closeSheet, toast, render: () => render(), renderRun: () => renderRun(), shareFile, csvCell, fmtDT, tx, isCrew, copyText, persist: () => MT.persist(), openShare: (r) => openShare(r), sendOil: (ev, sum) => sendOil(ev, sum) });
+Object.assign(actions, OIL.actions);
 
 // ---------- start ----------
 if (!state.settings.lang) { state.settings.lang = getLang(); save(); }
