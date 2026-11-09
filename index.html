@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Schip Route – Amadeus Aquamarijn</title>
+  <meta name="description" content="Onderhoudsrondes stap voor stap, offline aan boord.">
+  <meta name="theme-color" content="#0b3d5c">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Schip Route">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon-192.png" type="image/png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <main id="main" aria-live="polite"><p class="loading">Laden…</p></main>
+  <nav id="nav">
+    <button data-tab="routes"><span>🧭</span>Routes</button>
+    <button data-tab="onderhoud"><span>🔧</span>Onderhoud</button>
+    <button data-tab="kaart"><span>🚢</span>Kaart</button>
+    <button data-tab="locaties"><span>📍</span>Locaties</button>
+    <button data-tab="historie"><span>📋</span>Historie</button>
+    <button data-tab="meer"><span>⚙️</span>Meer</button>
+  </nav>
+  <section id="run" hidden></section>
+  <div id="sheet" hidden></div>
+  <div id="toast" hidden></div>
+  <input type="file" id="fileImport" accept=".json,application/json" hidden>
+  <input type="file" id="fileMarad" accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" hidden>
+  <input type="file" id="fileImage" accept="image/*" hidden>
+  <noscript>Deze app heeft JavaScript nodig.</noscript>
+  <input type="file" id="fileCam" accept="image/*" capture="environment" hidden>
+  <input type="file" id="fileGal" accept="image/*" multiple hidden>
+  <script src="js/outbox-core.js"></script>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
