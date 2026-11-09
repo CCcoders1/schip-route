@@ -292,3 +292,40 @@ ol.iossteps .ico { flex: none; width: 40px; height: 40px; border-radius: 12px; b
 ol.iossteps small { display: block; color: var(--muted); }
 .banner.ios { background: linear-gradient(135deg, var(--pri), #0d5c8a); }
 @supports (padding: max(0px)) { #sheet .sheet-card { padding-bottom: max(18px, env(safe-area-inset-bottom)); } }
+
+/* ---------- v1.7: Vandaag, menu, meldingen, bemanning kaal, één-tik afmelden, week ---------- */
+#nav button { font-size: .74rem; } #nav button span { font-size: 1.45rem; }
+body.crew #nav { display: none; }
+body.crew main { padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
+.iconbtn.menubtn { font-size: 1.5rem; margin-left: 4px; }
+.iconbtn.gear { font-size: 1.1rem; opacity: .7; margin-left: 2px; }
+body.crew .langbtn { font-size: .8rem; padding: 2px 6px; }
+.menugrid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0; }
+.btn.menuitem { justify-content: flex-start; text-align: left; min-height: 56px; font-size: .95rem; }
+.melbanner { display: flex; flex-direction: column; gap: 2px; width: 100%; text-align: left; border-left: 6px solid var(--warn); }
+.card.today { border-left: 6px solid #00897b; } .card.today.has-od { border-left-color: var(--warn); }
+.card.today h3 { margin: 0; font-size: 1.15rem; } .card.today .tcounts { margin: 8px 0; }
+.card.today .btn.huge { min-height: 64px; font-size: 1.35rem; margin: 4px 0 8px; } .card.today .btn.huge small { font-size: .9rem; opacity: .85; }
+.tag.red { background: var(--warn); color: #fff; } .tag.orange { background: #ef6c00; color: #fff; }
+h3.sec.red { color: var(--warn); } h3.sec.orange { color: #ef6c00; }
+.list.compact .card.route.mini { display: flex; align-items: center; gap: 8px; padding: 10px 12px; }
+.card.route.mini .tap { flex: 1; display: flex; flex-direction: column; } .card.route.mini .btn { min-width: 64px; }
+.card.msg { border-left: 6px solid var(--line); } .card.msg.new { border-left-color: var(--acc); }
+.card.msg.k-nietok { border-left-color: var(--warn); } .card.msg.k-vraag.new { border-left-color: #1565c0; }
+.msgtext { white-space: pre-wrap; margin: 6px 0; }
+.card.msg .thumbs { display: flex; flex-wrap: wrap; gap: 6px; } .card.msg .thumb img { width: 96px; height: 96px; object-fit: cover; border-radius: 8px; }
+.btn.bad { background: var(--warn); border-color: var(--warn); color: #fff; }
+.run-actions.onetap .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+.run-actions.onetap .row2:last-child { margin-bottom: 0; } .run-actions.onetap .row2 .btn:not(.huge) { min-height: 56px; font-size: 1.05rem; }
+.row.mininav { justify-content: space-between; margin-top: 8px; } .row.mininav .btn { min-height: 40px; }
+.crewrun .rname { color: var(--muted); font-weight: 600; margin: 0 0 6px; }
+.crewrun .bigloc { font-size: 1.7rem; font-weight: 800; color: var(--pri); margin: 4px 0; }
+[data-theme="dark"] .crewrun .bigloc { color: var(--fg); }
+.crewrun .bigtask { font-size: clamp(1.7rem, 7vw, 2.4rem); line-height: 1.2; margin: 10px 0 14px; }
+.crewrun details.instr summary { font-weight: 700; padding: 8px 0; } .crewrun details.instr pre { white-space: pre-wrap; font-size: .9rem; }
+.crewimp { justify-content: center; margin-top: 16px; }
+.smartbtn { width: 100%; margin: 6px 0; }
+.weeknav { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 8px 0; }
+.weeknav b { font-size: 1.2rem; } .weeknav small { color: var(--muted); flex: 1; text-align: center; }
+.mstats.wstats > div { display: flex; flex-direction: column; align-items: center; padding: 8px 4px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; }
+.mstats.wstats b { font-size: 1.5rem; } .mstats.wstats small { font-size: .72rem; text-align: center; }

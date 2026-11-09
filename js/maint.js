@@ -56,13 +56,17 @@ export function initMaint(api) {
   $f('#fileMarad')?.addEventListener('change', async (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) readFile(f); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.id === 'mPw') { e.preventDefault(); actions.mUnlock(); } });
   if (A.legacyMaint) migrateLegacy(A.legacyMaint);
-  return { view, actions, applyRun, applyPending, ensureMaint, runExtra, maradFields, persist, refreshTemplates, rankNames, templateInfo, sugCount };
+  return { view, actions, applyRun, applyPending, ensureMaint, runExtra, maradFields, persist, refreshTemplates, rankNames, templateInfo, sugCount, todayHTML, startFixed, needsReunlock, slimDefault, weekStats };
 }
 const $f = (s) => document.querySelector(s);
 
 // ---------- data ----------
 const knownLocIds = () => new Set(A.state.locations.map((l) => l.id));
-const autoLoc = (task, c) => autoLocation(task, c, knownLocIds());
+const autoLoc = (task, c) => { const ids = knownLocIds(); return autoLocation(task, c, ids) || (task.locHint && ids.has(task.locHint) ? task.locHint : null); };
+/** Versie van de versleutelde bundel die bij deze app hoort (vaste rondes + locatie-hints). */
+export const BUNDLE_REV = 2;
+export const needsReunlock = () => !!M()?.tasks && M().source === 'encrypted' && (M().bundleRev || 1) < BUNDLE_REV;
+export const slimDefault = () => (A.state.settings.orderDir === 'av' ? 'slimAV' : 'slimVA');
 // v1.3 bewaarde (onversleutelde begindata) in localStorage. Alleen bewaren als de gebruiker er zelf iets mee deed.
 async function migrateLegacy(lm) {
   const own = !lm.initial || lm.signoffs?.length || lm.tasks?.some((x) => x.locManual || x.appDone);
@@ -282,7 +286,8 @@ export function view() {
   h += `<div class="mstats"><button data-act="mQuick" data-v="overdue">${dot('overdue')}<b>${c.overdue}</b><small>${t('Te laat')}</small></button><button data-act="mQuick" data-v="week">${dot('week')}<b>${c.week}</b><small>${t('≤ 7 d')}</small></button><button data-act="mQuick" data-v="month">${dot('month')}<b>${c.month}</b><small>${t('≤ 30 d')}</small></button><button data-act="mQuick" data-v="all">${dot('later')}<b>${c.later}</b><small>${t('Later')}</small></button><button data-act="mQuick" data-v="all">${dot('hours')}<b>${c.hours}</b><small>${t('Draaiuren')}</small></button></div>`;
   if (rs.size) h += `<p class="muted small">👤 ${A.esc([...rs].join(', '))} · ${t('{n} van {m} taken', { n: mine.length, m: m.tasks.length })}</p>`;
   const vb = (k, lbl) => `<button class="${F.view === k ? 'on' : ''}" data-act="mView" data-v="${k}">${lbl}</button>`;
-  h += `<div class="seg mviews">${vb('tree', t('🌳 Boom'))}${vb('list', t('☰ Lijst'))}${vb('sug', t('💡 Voorstel'))}${vb('done', t('✔ Afgemeld') + (open_ ? ` (${open_})` : ''))}</div>`;
+  h += `<div class="seg mviews">${vb('tree', t('🌳 Boom'))}${vb('list', t('☰ Lijst'))}${vb('sug', t('💡 Voorstel'))}${vb('week', t('📅 Week'))}${vb('done', t('✔ Afgemeld') + (open_ ? ` (${open_})` : ''))}</div>`;
+  if (F.view === 'week') return h + weekHTML();
   if (F.view === 'done') return h + doneHTML();
   if (F.view === 'sug') return h + sugHTML();
   const stb = (k, lbl) => `<button class="${F.st === k ? 'on' : ''}" data-act="mSt" data-v="${k}">${lbl}</button>`;
@@ -361,6 +366,80 @@ function buildRoute(tasks, { name, assignee = '', strategy = 'kortste', fallback
   return { id: 'r-' + A.rid(), name, description: description || t('Uit MARAD: {n} taken', { n: steps.length }), assignee, createdAt: Date.now(), updatedAt: Date.now(), source: 'marad', steps: A.orderSteps(steps, A.state, strategy) };
 }
 
+// ---------- Vandaag (startscherm Beheer) ----------
+const soonOf = (sg) => sg.tasks.filter((x) => ['overdue', 'week'].includes(status(x)));
+export function todayHTML() {
+  const m = M(); if (!m?.tasks) return '';
+  allSug();
+  let h = '';
+  if (needsReunlock()) h += `<div class="warnbox">${t('Er zijn bijgewerkte onderhoudsgegevens (vaste rondes en locaties). Ontgrendel één keer opnieuw om ze te laden – je afmeldingen blijven bewaard.')}<div class="row"><button class="btn primary small" data-act="mUnlockSheet">${t('🔐 Ontgrendelen')}</button></div></div>`;
+  const my = myRank();
+  const rounds = FX.rounds.map((sg) => ({ sg, soon: soonOf(sg), od: sg.tasks.filter((x) => status(x) === 'overdue').length, mine: sg.ranks.includes(my) }))
+    .filter((r) => r.soon.length).sort((a, b) => b.mine - a.mine || b.od - a.od || b.soon.length - a.soon.length);
+  h += `<h3 class="sec">📌 ${t('Vaste rondes deze week')} <small>(${rounds.length})</small></h3>`;
+  if (!FX.rounds.length) h += `<p class="muted small">${t('Geen vaste rondes in deze gegevens.')}</p>`;
+  else if (!rounds.length) h += `<p class="okbox">${t('✔ Geen vaste rondes aan de beurt deze week.')}</p>`;
+  for (const { sg, soon, od, mine } of rounds) {
+    const tp = tplFor(sg.key);
+    h += `<article class="card today k-fixed ${od ? 'has-od' : ''}" data-k="${A.esc(sg.key)}"><div class="thead"><h3>${kIcon(sg)} ${A.esc(sugName(sg))}${mine ? ' <span title="' + t('Mijn functie') + '">⭐</span>' : ''}</h3><p class="muted small">👤 ${A.esc(sg.ranks.join(', '))} · ${periodLbl(sg.period)}${tp ? ' · 🔁' : ''}</p></div>
+      <p class="tcounts">${od ? `<span class="tag red">${t('{n} te laat', { n: od })}</span> ` : ''}<span class="tag orange">${t('{n} deze week', { n: soon.length - od })}</span> <small class="muted">${t('van {n} taken', { n: sg.tasks.length })}</small></p>
+      <button class="btn ok huge" data-act="tdStart" data-k="${A.esc(sg.key)}">${t('▶ Start ronde')} <small>(${soon.length})</small></button>
+      <div class="row"><button class="btn small" data-act="sgSend" data-k="${A.esc(sg.key)}">${t('📲 Stuur naar…')}</button><button class="btn small ghost" data-act="sgShow" data-k="${A.esc(sg.key)}">${t('☰ Taken bekijken')}</button></div></article>`;
+  }
+  const rs = rankSel();
+  const mine = m.tasks.filter((x) => rankOk(x, rs));
+  const od = mine.filter((x) => status(x) === 'overdue').sort(byDue), wk = mine.filter((x) => status(x) === 'week').sort(byDue);
+  const lim = (xs) => xs.slice(0, 6).map(taskRow).join('');
+  const who = rs.size ? ` <small>· 👤 ${A.esc([...rs].join(', '))}</small>` : '';
+  h += `<h3 class="sec red">🔴 ${t('Te laat')} <small>(${od.length})</small>${who}</h3><div class="mlist">${lim(od) || `<p class="muted small">${t('Niets te laat.')}</p>`}</div>${od.length > 6 ? `<button class="btn small ghost" data-act="mQuickGo" data-v="overdue">${t('Alle {n} tonen', { n: od.length })}</button>` : ''}`;
+  h += `<h3 class="sec orange">🟠 ${t('Binnenkort (≤ 7 dagen)')} <small>(${wk.length})</small>${who}</h3><div class="mlist">${lim(wk) || `<p class="muted small">${t('Niets binnen 7 dagen.')}</p>`}</div>${wk.length > 6 ? `<button class="btn small ghost" data-act="mQuickGo" data-v="week">${t('Alle {n} tonen', { n: wk.length })}</button>` : ''}`;
+  return h;
+}
+/** Vaste ronde starten vanaf Vandaag: gekoppelde route verversen (of aanmaken als terugkerend sjabloon) en de route-id teruggeven. */
+export function startFixed(key) {
+  allSug(); const sg = sugBy(key); if (!sg) return null;
+  const tp0 = tplFor(key);
+  if (tp0 && A.state.routes.some((r) => r.id === tp0.routeId)) { refreshTemplates(true, tp0.id); return tp0.routeId; }
+  if (tp0) A.state.templates = A.state.templates.filter((x) => x !== tp0);
+  const setK = soonOf(sg).length ? 'soon' : 'due';
+  const o = { name: sugName(sg), assignee: '', strategy: slimDefault(), fallback: '' };
+  const r = buildRoute(pickSet(sg, setK), o);
+  const tp = { id: 'tp-' + A.rid(), key: sg.key, name: o.name, period: sg.period, set: setK, assignee: '', strategy: o.strategy, fallback: '', routeId: r.id, lastKey: periodKey(sg.period), lastRefresh: new Date().toISOString(), createdAt: new Date().toISOString() };
+  (A.state.templates ||= []).push(tp); r.templateId = tp.id; r.description = tplDesc(tp, r.steps.length);
+  A.state.routes.push(r); S();
+  return r.id;
+}
+// ---------- weekoverzicht ----------
+const isoD = (d) => d.toISOString().slice(0, 10);
+function weekRange(off = 0) {
+  const d = new Date(todayISO() + 'T12:00:00Z'); const day = d.getUTCDay() || 7;
+  const mon = new Date(d); mon.setUTCDate(d.getUTCDate() - day + 1 + off * 7);
+  const sun = new Date(mon); sun.setUTCDate(mon.getUTCDate() + 6);
+  return { from: isoD(mon), to: isoD(sun), key: periodKey('week', mon) };
+}
+export function weekStats(off = 0) {
+  const m = M(); if (!m?.tasks) return null;
+  const { from, to, key } = weekRange(off);
+  const done = m.signoffs.filter((x) => x.doneDate >= from && x.doneDate <= to);
+  const doneIds = new Set(done.map((x) => x.taskId));
+  const rs = rankSel();
+  const open_ = m.tasks.filter((x) => rankOk(x, rs) && !doneIds.has(x.id) && (status(x) === 'overdue' || (!isHours(x) && x.dueDate && x.dueDate <= to))).sort(byDue);
+  return { from, to, key, done, open: open_, overdue: open_.filter((x) => status(x) === 'overdue').length, toEnter: m.signoffs.filter((x) => !x.enteredInMarad).length };
+}
+function weekHTML() {
+  const w = weekStats(F.wk || 0);
+  const by = new Map(); for (const x of w.done) { const k = x.by || t('ik'); if (!by.has(k)) by.set(k, []); by.get(k).push(x); }
+  let h = `<div class="weeknav"><button class="iconbtn" data-act="mWeek" data-v="-1" aria-label="${t('Vorige week')}">◀</button><b>${t('Week {w}', { w: w.key.split('-W')[1] })}</b><small>${fmtD(w.from)} – ${fmtD(w.to)}</small><button class="iconbtn" data-act="mWeek" data-v="1" aria-label="${t('Volgende week')}" ${(F.wk || 0) >= 0 ? 'disabled' : ''}>▶</button></div>`;
+  h += `<div class="mstats wstats"><div><b class="okc">${w.done.length}</b><small>${t('Gedaan')}</small></div><div><b>${w.open.length}</b><small>${t('Open')}</small></div><div><b class="cr">${w.overdue}</b><small>${t('Te laat')}</small></div><div><b>${w.toEnter}</b><small>${t('In MARAD in te voeren')}</small></div></div>`;
+  h += `<section class="card"><h3>⬇ ${t('Export "Afgemeld voor MARAD"')}</h3><p class="muted small">${t('{n} afmeldingen nog in MARAD in te voeren (alle weken).', { n: w.toEnter })}</p><div class="row"><button class="btn primary" data-act="mExport" ${w.toEnter ? '' : 'disabled'}>${t('⬇ CSV "Afgemeld voor MARAD"')}</button><button class="btn" data-act="mEntered" ${w.toEnter ? '' : 'disabled'}>${t('✔ Alles ingevoerd in MARAD')}</button></div></section>`;
+  h += `<h3 class="sec">✔ ${t('Gedaan deze week')} <small>(${w.done.length})</small></h3>`;
+  if (!w.done.length) h += `<p class="muted small">${t('Nog niets afgemeld in deze week.')}</p>`;
+  for (const [p, xs] of by) h += `<h4 class="odate">👤 ${A.esc(p)} <small>(${xs.length})</small></h4><ul class="signoffs">${xs.map((s) => `<li><b>${A.esc(s.task)}</b><small>✔ ${fmtD(s.doneDate)}${s.remarks ? ' · 📝 ' + A.esc(s.remarks) : ''}${s.enteredInMarad ? ' · ' + t('ingevoerd in MARAD') : ''}</small></li>`).join('')}</ul>`;
+  h += `<h3 class="sec">⏳ ${t('Nog open deze week')} <small>(${w.open.length})</small>${rankSel().size ? ` <small>· 👤 ${A.esc([...rankSel()].join(', '))}</small>` : ''}</h3><div class="mlist">${w.open.slice(0, 40).map(taskRow).join('') || `<p class="okbox">${t('✔ Alles gedaan voor deze week.')}</p>`}</div>`;
+  if (w.open.length > 40) h += `<p class="muted small">${t('+ {n} meer – zie Lijst', { n: w.open.length - 40 })}</p>`;
+  return h;
+}
+
 function doneHTML() {
   const m = M(); const xs = [...m.signoffs].reverse();
   const openS = xs.filter((s) => !s.enteredInMarad), arch = xs.filter((s) => s.enteredInMarad);
@@ -423,7 +502,7 @@ function makeRouteSheet(ctx = null) {
     ${sets ? `<div class="flbl">${t('Welke taken?')}</div><div class="radios">${sets.map(([k, l, xs], i) => `<label class="switch"><input type="radio" name="mrSet" value="${k}" ${i ? '' : 'checked'}><span>${l} (${xs.length})</span></label>`).join('')}</div>` : ''}
     <label>${t('Naam')}<input id="mrName" value="${A.esc(defName)}"></label>
     <label>${t('Bestemd voor')}<select id="mrTo"><option value="">${t('— niemand / mezelf —')}</option>${cs.map((c) => `<option ${c.match && c === cs[0] ? 'selected' : ''} value="${A.esc(c.name)}">${c.match ? '⭐ ' : ''}${A.esc(c.name)}${c.func ? ' · ' + A.esc(c.func) : ''}</option>`).join('')}</select></label>
-    <label>${t('Volgorde')}<select id="mrStrat">${Object.entries(A.STRATEGIES).map(([k, v]) => `<option value="${k}" ${k === 'kortste' && sg ? 'selected' : ''}>${A.esc(v.label)}</option>`).join('')}</select></label>
+    <label>${t('Volgorde')}<select id="mrStrat">${Object.entries(A.STRATEGIES).map(([k, v]) => `<option value="${k}" ${k === (sg ? slimDefault() : 'kortste') ? 'selected' : ''}>${A.esc(v.label)}</option>`).join('')}</select></label>
     ${nUn ? `<div class="warnbox">${t('{n} taken hebben nog geen locatie. Kies een locatie voor deze taken:', { n: nUn })}${A.locSelect(commonLoc(sg ? sg.tasks : tasks), 'id="mrLoc"', true)}</div>` : ''}
     ${sg ? `<label class="switch"><input type="checkbox" id="mrTpl" ${ctx.tpl || sg.kind === 'fixed' ? 'checked' : ''}><span>${t('🔁 Terugkerend sjabloon: route elke {p} verversen met de taken die dan aan de beurt zijn', { p: periodNoun(sg.period) })}</span></label>` : ''}
     <p class="muted small">${t('Elke taak krijgt de velden "Uitgevoerd ja/nee" en "Opmerking" (bij draaiuren ook de urenstand). Na de ronde worden uitgevoerde taken afgemeld en komen ze in "Afgemeld voor MARAD".')}</p>
@@ -543,7 +622,7 @@ export const actions = {
     localStorage.removeItem(FKEY);
     await ensureMaint();
     const r = mergeMarad(M() || null, data, { autoLoc, file: data.file || 'marad-export' });
-    A.state.maint = r.maint; A.state.maint.source = 'encrypted'; loaded = true;
+    A.state.maint = r.maint; A.state.maint.source = 'encrypted'; loaded = true; relink();
     S(); afterLoad(false); A.closeSheet(); A.go('onderhoud');
     A.toast(t('Ontgrendeld – {n} taken staan nu op dit toestel', { n: r.maint.tasks.length }), 4000);
   },
@@ -566,6 +645,9 @@ export const actions = {
   mTplStop: (a) => { if (!confirm(t('Sjabloon stoppen? De route zelf blijft bestaan.'))) return; const tp = (A.state.templates || []).find((x) => x.id === a.dataset.id); A.state.templates = (A.state.templates || []).filter((x) => x.id !== a.dataset.id); const r = tp && A.state.routes.find((x) => x.id === tp.routeId); if (r) delete r.templateId; S(); A.render(); },
   mSt: (a) => { F.st = a.dataset.v; A.render(); },
   mQuick: (a) => { F.st = a.dataset.v; F.view = 'list'; A.render(); },
+  mQuickGo: (a) => { F.st = a.dataset.v; F.view = 'list'; A.go('onderhoud'); },
+  mWeek: (a) => { F.wk = Math.min(0, (F.wk || 0) + +a.dataset.v); A.render(); },
+  mWeekGo: () => { A.closeSheet?.(); F.view = 'week'; F.wk = 0; A.go('onderhoud'); },
   mImport: () => { preview = null; importSheet(); },
   mPickFile: () => $f('#fileMarad').click(),
   mDoImport: () => {

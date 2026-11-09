@@ -5,7 +5,7 @@ import { initMaint } from './maint.js';
 import { shipSVG, svgPointToLoc, VIEWS } from './shipmap.js';
 import { t, tx, setTx, getLang, setLang, LANGS, LOCALES } from './i18n.js';
 
-const APP_VERSION = '1.6.0';
+const APP_VERSION = '1.7.0';
 const OB = self.OutboxCore;
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -17,8 +17,9 @@ const plural = (n, a, b) => `${n} ${n === 1 ? a : b}`;
 // Modus: 'beheer' (manager: alles) of 'bemanning' (crew: ontvangen routes, ronde, vragen, observaties, outbox).
 const isCrew = () => state.settings.mode === 'bemanning';
 const CREW_TABS = ['routes', 'meer'];
+const BEHEER_TABS = ['vandaag', 'onderhoud', 'routes', 'meldingen'];
 
-let view = { tab: 'routes', routeId: null, runId: null, mapMode: 'side', mapRoute: '', placing: null, hist: 'runs' };
+let view = { tab: '', mel: 'msgs', routeId: null, runId: null, mapMode: 'side', mapRoute: '', placing: null, hist: 'runs' };
 // iPhone/iPad (ook iPadOS die zich als Mac voordoet) en of de app vanaf het beginscherm draait
 const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 const isStandalone = () => matchMedia('(display-mode: standalone), (display-mode: fullscreen)').matches || navigator.standalone === true;
@@ -91,16 +92,18 @@ const viewToggle = (act, cur) => `<div class="seg">${Object.entries(VIEWS).map((
 // ---------- render ----------
 function render() {
   applyTheme();
+  if (!view.tab) view.tab = isCrew() ? 'routes' : 'vandaag';
   if (isCrew() && !CREW_TABS.includes(view.tab)) view = { ...view, tab: 'routes', routeId: null, runId: null };
   if (isCrew()) view.routeId = null;
   document.body.classList.toggle('crew', isCrew());
-  $$('#nav button').forEach((b) => { b.classList.toggle('on', b.dataset.tab === view.tab); b.hidden = isCrew() && !CREW_TABS.includes(b.dataset.tab); });
-  const NAVL = { routes: isCrew() ? t('Mijn routes') : t('Routes'), onderhoud: t('Onderhoud'), kaart: t('Kaart'), locaties: t('Locaties'), historie: t('Historie'), meer: t('Meer') };
+  $$('#nav button').forEach((b) => { b.classList.toggle('on', b.dataset.tab === view.tab); b.hidden = isCrew() || !BEHEER_TABS.includes(b.dataset.tab); });
+  const NAVL = { vandaag: t('Vandaag'), meldingen: t('Meldingen'), routes: isCrew() ? t('Mijn routes') : t('Rondes'), onderhoud: t('Onderhoud'), kaart: t('Kaart'), locaties: t('Locaties'), historie: t('Historie'), meer: t('Meer') };
   $$('#nav button').forEach((b) => { b.lastChild.textContent = NAVL[b.dataset.tab]; });
-  const nb = $('#nav button[data-tab=historie]'); const un = isCrew() ? 0 : unseenCount();
+  const nb = $('#nav button[data-tab=meldingen]'); const un = isCrew() ? 0 : unseenCount() + unseenMsgs();
   let bd = nb.querySelector('.nbadge'); if (!bd) { bd = document.createElement('b'); bd.className = 'nbadge'; nb.prepend(bd); }
-  bd.textContent = un > 99 ? '99+' : un; bd.hidden = !un; nb.setAttribute('aria-label', NAVL.historie + (un ? ' – ' + t('{n} nieuwe aftekeningen', { n: un }) : ''));
+  bd.textContent = un > 99 ? '99+' : un; bd.hidden = !un; nb.setAttribute('aria-label', NAVL.meldingen + (un ? ' – ' + t('{n} ongelezen', { n: un }) : ''));
   const fn = {
+    vandaag: viewToday, meldingen: viewMeldingen,
     routes: isCrew() ? viewCrewRoutes : view.routeId ? viewRoute : viewRoutes,
     onderhoud: MT.view,
     kaart: viewMap, locaties: viewLocations,
@@ -110,7 +113,7 @@ function render() {
   afterRender();
 }
 function header(title, back = false, extra = '') {
-  return `<header class="top">${back ? `<button class="iconbtn" data-act="back" aria-label="${t('Terug')}">◀</button>` : ''}<h1>${esc(title)}</h1>${extra}${isCrew() ? `<span class="modechip" title="${t('Bemanning-modus')}">👷</span>` : ''}${obxBadge()}<button class="langbtn" data-act="langMenu" aria-label="${t('Taal / Language / Bahasa')}">${LANGS[getLang()].flag} ${getLang().toUpperCase()}</button><span class="net ${navigator.onLine ? 'on' : 'off'}">${navigator.onLine ? 'online' : 'offline'}</span></header>`;
+  return `<header class="top">${back ? `<button class="iconbtn" data-act="back" aria-label="${t('Terug')}">◀</button>` : ''}<h1>${esc(title)}</h1>${extra}${isCrew() ? `<span class="modechip" title="${t('Bemanning-modus')}">👷</span>` : ''}${obxBadge()}<button class="langbtn" data-act="langMenu" aria-label="${t('Taal / Language / Bahasa')}">${LANGS[getLang()].flag} ${getLang().toUpperCase()}</button>${isCrew() ? `<button class="iconbtn gear" data-act="goTab" data-v="${view.tab === 'meer' ? 'routes' : 'meer'}" aria-label="${t('Instellingen')}">${view.tab === 'meer' ? '✕' : '⚙'}</button>` : `<span class="net ${navigator.onLine ? 'on' : 'off'}">${navigator.onLine ? 'online' : 'offline'}</span><button class="iconbtn menubtn" data-act="appMenu" aria-label="${t('Menu')}">☰</button>`}</header>`;
 }
 function obxBadge() { return `<button class="obx ${outboxErr ? 'err' : ''}" data-act="openOutbox" ${outboxPending ? '' : 'hidden'} aria-label="${t('Outbox')}">📤 ${outboxPending}</button>`; }
 function installBanner() {
@@ -131,9 +134,87 @@ function iosInstallSheet() {
     <button class="btn primary big" data-act="closeSheet">${t('Begrepen')}</button>`, { iosInstall: true });
 }
 
+// ---------- Vandaag (startscherm Beheer) ----------
+function resumeCard() {
+  const ar = state.activeRun; if (!ar) return '';
+  return `<div class="card resume"><b>${t('Ronde bezig: {name}', { name: esc(tx(ar.route, 'name')) })}</b><p>${t('Stap {a} van {b} · gestart {c}', { a: Math.min(ar.idx + 1, ar.route.steps.length), b: ar.route.steps.length, c: fmtDT(ar.startedAt) })}</p><div class="row"><button class="btn ok big" data-act="resumeRun">${t('▶ Doorgaan')}</button>${isCrew() ? '' : `<button class="btn ghost" data-act="abortRun">${t('Afbreken')}</button>`}</div></div>`;
+}
+function viewToday() {
+  const d = new Date().toLocaleDateString(LOCALES[getLang()], { weekday: 'long', day: 'numeric', month: 'long' });
+  let h = header(t('Vandaag')) + `<p class="shipsub">📅 ${esc(d)} · 🚢 ${esc(state.shipName)}</p>`;
+  h += resumeCard() + installBanner();
+  const un = unseenMsgs() + unseenCount();
+  if (un) h += `<button class="card tap melbanner" data-act="goTab" data-v="meldingen">🔔 <b>${t('{n} ongelezen meldingen', { n: un })}</b><small>${t('vragen, observaties, Niet OK en aftekeningen')}</small></button>`;
+  if (!state.maint?.tasks) h += `<section class="card"><h3>🔐 ${t('Onderhoud ontgrendelen')}</h3><p class="muted small">${t('Ontgrendel de MARAD-gegevens om de vaste rondes en te-late taken te zien.')}</p><button class="btn primary big" data-act="mUnlockSheet">${t('🔓 Ontgrendelen')}</button></section>`;
+  else h += MT.todayHTML() + `<div class="row"><button class="btn" data-act="mWeekGo">${t('📅 Weekoverzicht')}</button><button class="btn" data-act="goSug">${t('💡 Alle vaste rondes')}</button></div>`;
+  const rs = state.routes.filter((r) => !r.templateId).slice(0, 5);
+  if (rs.length) h += `<h3 class="sec">🧭 ${t('Eigen rondes')}</h3><div class="list compact">${rs.map((r) => `<article class="card route mini"><div class="tap" data-act="openRoute" data-id="${r.id}"><b>${esc(tx(r, 'name'))}</b><small>${plural(r.steps.length, t('taak'), t('taken'))}</small></div><button class="btn ok" data-act="startRun" data-id="${r.id}" ${r.steps.length ? '' : 'disabled'}>▶</button></article>`).join('')}</div><button class="btn small ghost" data-act="goTab" data-v="routes">${t('Alle rondes →')}</button>`;
+  return h;
+}
+function appMenu() {
+  const it = (act, v, ico, label, extra = '') => `<button class="btn menuitem" data-act="${act}" ${v ? `data-v="${v}"` : ''} ${extra}>${ico} ${label}</button>`;
+  openSheet(`<h2>☰ ${t('Menu')}</h2><div class="menugrid">
+    ${it('mWeekGo', '', '📅', t('Weekoverzicht'))}${it('goMaradDone', '', '⬇', t('Afgemeld voor MARAD (CSV)'))}
+    ${it('goTab', 'kaart', '🚢', t('Kaart'))}${it('goTab', 'locaties', '📍', t('Locaties'))}
+    ${it('goTab', 'historie', '📋', t('Historie (eigen rondes)'))}${it('newObs', '', '👁', t('Eigen observatie'))}
+    ${it('openOutbox', '', '📤', t('Outbox'))}${it('langMenu', '', '🌐', t('Taal · Language · Bahasa'))}
+    ${it('goTab', 'meer', '⚙️', t('Instellingen, personen, PIN, modus'))}${state.maint ? it('mLock', '', '🔒', t('Vergrendelen')) : it('mUnlockSheet', '', '🔓', t('Ontgrendelen'))}
+  </div><p class="muted small">${t('Versie')} ${APP_VERSION}</p>`, { menu: true });
+}
+
+// ---------- Meldingen (Beheer) ----------
+const inbox = () => (state.inbox ||= []);
+function unseenMsgs() { return inbox().filter((m) => !m.seenAt).length; }
+const MK = () => ({ vraag: ['❓', t('Vraag')], observatie: ['👁', t('Observatie')], nietok: ['✖', t('Niet OK')], urgent: ['🚨', t('Urgent')] });
+function melFilter() { return view.melF || 'all'; }
+function viewMeldingen() {
+  const un = unseenMsgs(), uo = unseenCount();
+  let h = header(t('Meldingen')) + `<div class="seg hseg"><button class="${view.mel !== 'others' ? 'on' : ''}" data-act="melMode" data-v="msgs">💬 ${t('Berichten')}${un ? ` <b class="sbadge">${un}</b>` : ''}</button><button class="${view.mel === 'others' ? 'on' : ''}" data-act="melMode" data-v="others">👥 ${t('Afgetekend door anderen')}${uo ? ` <b class="sbadge">${uo}</b>` : ''}</button></div>`;
+  if (view.mel === 'others') return h + viewOthers();
+  const f = melFilter();
+  const items = [];
+  for (const m of inbox()) items.push({ ...m, src: 'ntfy' });
+  for (const r of received()) for (const m of r.messages || []) if (!inbox().some((x) => x.text && m.text && x.message?.includes(m.text))) items.push({ id: r.id + ':' + (m.id || m.text), kind: m.kind, text: m.text, by: r.by, locName: m.locName, time: m.at || r.finishedAt, photosN: m.photos, src: 'report', run: r.id, seenAt: r.received.seenAt || 'x' });
+  for (const o of state.observations || []) items.push({ id: o.id, kind: o.kind, text: o.text, by: t('ik'), locName: o.locName, time: o.at, photosN: o.photos, src: 'own', seenAt: 'own', urgent: o.urgent });
+  const xs = items.filter((x) => f === 'all' || x.kind === f).sort((a, b) => String(b.time).localeCompare(String(a.time)));
+  const fb = (k, l) => `<button class="${f === k ? 'on' : ''}" data-act="melFilter" data-v="${k}">${l}</button>`;
+  h += `<div class="seg">${fb('all', t('Alles'))}${fb('vraag', '❓ ' + t('Vragen'))}${fb('observatie', '👁 ' + t('Observaties'))}${fb('nietok', '✖ ' + t('Niet OK'))}</div>`;
+  h += `<div class="row">${un ? `<button class="btn small ok" data-act="melSeenAll">${t('✔ Alles gezien')}</button>` : ''}<button class="btn small" data-act="ntfyPoll">${t('🔄 Ophalen uit meldingskanaal')}</button></div><p class="muted small" id="pollInfo">${state.settings.ntfyPolledAt ? t('Laatst opgehaald: {d}', { d: fmtDT(state.settings.ntfyPolledAt) }) : ''} · ${t('ntfy bewaart berichten ±12 uur en foto’s ±3 uur: open de app minstens dagelijks.')}</p>`;
+  if (!xs.length) return h + `<p class="empty">${t('Nog geen meldingen. Vragen, observaties en "Niet OK" van de bemanning komen hier binnen via het meldingskanaal.')}</p>`;
+  for (const x of xs) {
+    const [ico, lbl] = MK()[x.urgent ? 'urgent' : x.kind] || ['🔔', x.kind];
+    const isNew = !x.seenAt;
+    h += `<article class="card msg k-${x.kind} ${isNew ? 'new' : ''}"><div class="ohead"><b>${(x.title || '').startsWith(ico) ? '' : ico + ' '}${esc(x.title || lbl)}</b>${isNew ? ` <span class="tag warn">${t('NIEUW')}</span>` : ''}</div>
+      <p class="muted small">${x.time ? fmtDT(x.time) : ''}${x.by ? ' · 👤 ' + esc(x.by) : ''}${x.locName ? ' · 📍 ' + esc(x.locName) : ''} · ${x.src === 'ntfy' ? t('via meldingskanaal') : x.src === 'report' ? t('uit rapport') : t('eigen')}</p>
+      ${x.message || x.text ? `<p class="msgtext">${esc(msgBody(x.message || x.text))}</p>` : ''}
+      ${x.photos?.length ? `<div class="thumbs">${x.photos.map((p) => `<a href="${esc(p.url)}" target="_blank" rel="noopener" class="thumb"><img src="${esc(p.url)}" alt="📷 ${t('foto (verloopt na ±3 uur)')}" loading="lazy"></a>`).join('')}</div>` : x.photosN ? `<p class="muted small">📷 ${x.photosN}</p>` : ''}
+      <div class="row">${isNew ? `<button class="btn small ok" data-act="melSeen" data-id="${esc(x.id)}">${t('✔ Gezien')}</button>` : ''}${x.run ? `<button class="btn small ghost" data-act="openRunH" data-id="${x.run}">${t('Rapport')}</button>` : ''}</div></article>`;
+  }
+  return h;
+}
+/* i18n-skip-start */
+// ntfy-bericht → soort (tags worden door de app zelf gezet)
+// Meta-regels (📍 👤 🕒 🚢 …) staan al in de kop van de kaart: niet dubbel tonen. Vragen houden 🧭/🔧 (route + taak).
+function msgBody(txt) { return String(txt).split('\n').filter((l) => !/^\s*(📍|👤|🕒|🚢|📷)/u.test(l)).join('\n').trim(); }
+function ntfyKind(m) {
+  const tg = m.tags || [];
+  if (tg.includes('clipboard') || tg.includes('paperclip') || /^rapport-.*\.json$/i.test(m.attachment?.name || '') || /#report=/.test(m.click || '') || /^📨/.test(m.title || '')) return 'rapport';
+  if (tg.includes('bell')) return 'test';
+  if (tg.includes('camera') || (m.attachment && !m.message?.trim())) return 'foto';
+  if (tg.includes('question')) return 'vraag';
+  if (tg.includes('x')) return 'nietok';
+  if (tg.includes('eyes') || tg.includes('rotating_light')) return 'observatie';
+  const ti = m.title || '';
+  if (/^(Vraag|Question|Pertanyaan)\b/i.test(ti)) return 'vraag';
+  if (/^✖/.test(ti)) return 'nietok';
+  if (/^(URGENT: )?(Observatie|Observation|Observasi)\b/i.test(ti)) return 'observatie';
+  return 'anders';
+}
+/* i18n-skip-end */
+
 function viewRoutes() {
   const ar = state.activeRun;
-  let h = header(t('Routes')) + `<p class="shipsub">🚢 ${esc(state.shipName)}</p>`;
+  let h = header(t('Rondes')) + `<p class="shipsub">🚢 ${esc(state.shipName)}</p>`;
   if (ar) h += `<div class="card resume"><b>${t('Ronde bezig: {name}', { name: esc(tx(ar.route, 'name')) })}</b><p>${t('Stap {a} van {b} · gestart {c}', { a: Math.min(ar.idx + 1, ar.route.steps.length), b: ar.route.steps.length, c: fmtDT(ar.startedAt) })}</p><div class="row"><button class="btn ok big" data-act="resumeRun">${t('▶ Doorgaan')}</button><button class="btn ghost" data-act="abortRun">${t('Afbreken')}</button></div></div>`;
   h += installBanner();
   const ns = state.maint ? MT.sugCount() : 0;
@@ -167,6 +248,7 @@ function viewRoute() {
       <div class="sbtns"><button data-act="stepMove" data-d="-1" data-id="${s.id}" ${i === 0 ? 'disabled' : ''} aria-label="${t('Omhoog')}">▲</button><button data-act="stepMove" data-d="1" data-id="${s.id}" ${i === r.steps.length - 1 ? 'disabled' : ''} aria-label="${t('Omlaag')}">▼</button><button data-act="stepMenu" data-id="${s.id}" aria-label="${t('Meer')}">⋯</button></div></li>`;
   });
   h += `</ol><div class="stack"><button class="btn primary big" data-act="addStep">${t('+ Taak toevoegen')}</button>${state.library.length ? `<button class="btn" data-act="addFromLib">${t('+ Uit takenbibliotheek (')}${state.library.length})</button>` : ''}</div>`;
+  if (r.steps.length > 1) h += `<button class="btn big smartbtn" data-act="smartOrder">🧭 ${t('Slimme volgorde')}</button>`;
   h += `<details class="auto"><summary>${t('⚙️ Automatisch ordenen (experimenteel)')}</summary><p class="muted">${t('Jij bepaalt de volgorde. Deze knop doet een voorstel; je kunt daarna nog alles verschuiven.')}</p><div class="row"><select id="strategy">${Object.entries(STRATEGIES).map(([k, v]) => `<option value="${k}">${esc(tx(v, 'label'))}</option>`).join('')}</select><button class="btn" data-act="autoOrder">${t('Toepassen')}</button></div></details>`;
   h += `<div class="stack"><button class="btn ok big" data-act="startRun" data-id="${r.id}" ${r.steps.length ? '' : 'disabled'}>${t('▶ Start ronde')}</button><button class="btn" data-act="shareRoute" data-id="${r.id}">${t('📤 Route versturen')}</button>
     <div class="row"><button class="btn ghost" data-act="dupRoute" data-id="${r.id}">${t('Dupliceren')}</button><button class="btn danger" data-act="delRoute" data-id="${r.id}">${t('Verwijderen')}</button></div></div>`;
@@ -648,6 +730,24 @@ function renderRun(first = false) {
   const vals = ar.values[s.id] || {};
   const next = steps[i + 1];
   const same = i > 0 && steps[i - 1].locationId === s.locationId;
+  const shown = (s.fields || []).filter((f) => f.role !== 'mDone' && f.role !== 'mRem'); // OK/Niet OK vervangen "Uitgevoerd" en "Opmerking"
+  const acts = `<div class="run-actions onetap"><div class="row2"><button class="btn ok huge" data-act="runDone">✔ ${t('OK')}</button><button class="btn bad huge" data-act="runProblem">✖ ${t('Niet OK')}</button></div>
+      <div class="row2"><button class="btn" data-act="newHelp">❓ ${t('Vraag')}</button><button class="btn" data-act="newObs">📷 ${t('Foto / observatie')}</button></div></div>`;
+  if (isCrew()) {
+    // Bemanning: alleen de route, de huidige taak groot met locatie, en OK / Niet OK / Vraag / Foto.
+    el.innerHTML = `<div class="run-top"><button class="iconbtn" data-act="runPause" aria-label="${t('Pauze')}">✕</button><div class="prog"><div style="width:${(i / total) * 100}%"></div></div>${obxBadge()}<span class="cnt">${i + 1}/${total}</span></div>
+    <div class="run-body crewrun"><p class="rname">${esc(tx(ar.route, 'name'))}</p>
+      <p class="bigloc">📍 ${esc(tx(l, 'name'))}</p>
+      <h2 class="bigtask">${esc(tx(s, 'title'))}</h2>
+      ${s.instruction || s.workCard ? `<details class="instr"><summary>${t('Uitleg')}</summary>${s.instruction ? `<p>${esc(tx(s, 'instruction'))}</p>` : ''}${s.workCard ? `<pre>${esc(s.workCard)}</pre>` : ''}</details>` : ''}
+      ${shown.length ? `<div class="fields">${shown.map((f) => fieldInput(f, vals[f.id], isOOR(f, vals[f.id]))).join('')}</div>` : ''}
+      <div class="row mininav"><button class="btn small ghost" data-act="runPrev" ${i === 0 ? 'disabled' : ''}>◀ ${t('Vorige')}</button><button class="btn small ghost" data-act="runSkip">↷ ${t('Overslaan')}</button></div>
+    </div>${acts}`;
+    el.scrollTop = 0;
+    if (!first && state.settings.vibrate && navigator.vibrate) navigator.vibrate(80);
+    speak(t('{lead} {go} {loc}, en voer de taak uit: {task}. {instr}', { lead: '', go: same ? t('Blijf bij') : t('Loop nu naar'), loc: tx(l, 'name'), task: tx(s, 'title'), instr: tx(s, 'instruction') }));
+    return;
+  }
   el.innerHTML = `<div class="run-top"><button class="iconbtn" data-act="runPause" aria-label="${t('Pauze')}">✕</button><div class="prog"><div style="width:${(i / total) * 100}%"></div></div>${obxBadge()}<span class="cnt">${i + 1}/${total}</span></div>
     <div class="run-body">
       <p class="lead">${lead}</p>
@@ -655,12 +755,11 @@ function renderRun(first = false) {
       <p class="deckname">${esc(tx(deck(l.deck), 'name') || l.deckName || '')}</p>
       <div class="run-map" data-act="runMapToggle">${runMap(ar, l)}</div>
       <div class="task"><p class="tasklbl">${t('en voer de taak uit:')}</p><h3>${esc(tx(s, 'title'))}</h3>${s.instruction ? `<p>${esc(tx(s, 'instruction'))}</p>` : ''}${MT.runExtra(s)}</div>
-      <div class="row helprow"><button class="btn" data-act="newHelp">${t('❓ Hulp / vraag')}</button><button class="btn" data-act="newObs">${t('👁 Extra observatie')}</button></div>
-      ${s.fields?.length ? `<div class="fields">${s.fields.map((f) => fieldInput(f, vals[f.id], isOOR(f, vals[f.id]))).join('')}</div>` : ''}
+      ${shown.length ? `<div class="fields">${shown.map((f) => fieldInput(f, vals[f.id], isOOR(f, vals[f.id]))).join('')}</div>` : ''}
       ${next ? `<p class="next">${t('Daarna:')} <b>${esc(tx(next, 'title'))}</b> · ${esc(tx(curLoc(ar, next), 'name'))}</p>` : `<p class="next">${t('Dit is de laatste taak.')}</p>`}
     </div>
-    <div class="run-actions"><button class="btn ok huge" data-act="runDone">${t('✔ Klaar')}</button>
-      <div class="row3"><button class="btn" data-act="runPrev" ${i === 0 ? 'disabled' : ''}>${t('◀ Vorige')}</button><button class="btn" data-act="runSkip">${t('↷ Overslaan')}</button><button class="btn warn" data-act="runProblem">${t('⚠ Probleem')}</button></div></div>`;
+    <div class="row mininav"><button class="btn small ghost" data-act="runPrev" ${i === 0 ? 'disabled' : ''}>${t('◀ Vorige')}</button><button class="btn small ghost" data-act="runSkip">${t('↷ Overslaan')}</button></div>
+    ${acts}`;
   el.scrollTop = 0; $('.run-body', el).scrollTop = 0;
   const pi = $('.runPlanImg', el);
   if (pi) getPlan(l.pp.deck).then((src) => { if (src) pi.src = src; });
@@ -764,8 +863,9 @@ const actions = {
     $$(`[data-fid="${a.dataset.fid}"] .cbtn`, $('#run')).forEach((b) => b.classList.toggle('on', JSON.parse(b.dataset.val) === vals[a.dataset.fid]));
   },
   runDone: () => {
-    const ar = state.activeRun; const s = ar.route.steps[ar.idx]; const vals = ar.values[s.id] || {};
-    const missing = (s.fields || []).filter((f) => f.required && (vals[f.id] === undefined || vals[f.id] === ''));
+    const ar = state.activeRun; const s = ar.route.steps[ar.idx]; const vals = (ar.values[s.id] ??= {});
+    for (const f of s.fields || []) if (f.role === 'mDone') vals[f.id] = true; // één tik: OK = uitgevoerd
+    const missing = (s.fields || []).filter((f) => f.role !== 'mDone' && f.required && (vals[f.id] === undefined || vals[f.id] === ''));
     $$('.fld', $('#run')).forEach((el) => el.classList.toggle('missing', missing.some((f) => f.id === el.dataset.fid)));
     if (missing.length) { toast(t('Vul eerst in: ') + missing.map((f) => tx(f, 'label')).join(', ')); if (navigator.vibrate) navigator.vibrate([40, 40, 40]); return; }
     if ((s.fields || []).some((f) => isOOR(f, vals[f.id]))) toast(t('Let op: waarde buiten bereik vastgelegd'), 3500);
@@ -773,7 +873,8 @@ const actions = {
   },
   runSkip: () => recordStep('skipped'),
   runPrev: () => { const ar = state.activeRun; if (ar.idx === 0) return; ar.idx--; const s = ar.route.steps[ar.idx]; ar.results = ar.results.filter((x) => x.stepId !== s.id); save(); renderRun(); },
-  runProblem: () => openSheet(`<h2>${t('Probleem melden')}</h2><p class="muted">${t('Wat is er aan de hand? Dit komt in het rapport.')}</p><textarea id="probNote" rows="4" placeholder="${t('Bijv. lekkage bij pakkingbus, oliepeil te laag')}"></textarea><div class="row sticky"><button class="btn ghost" data-act="closeSheet">${t('Annuleren')}</button><button class="btn warn" data-act="saveProblem">${t('Opslaan & verder')}</button></div>`),
+  runProblem: () => openCompose('nietok'),
+  runProblemOld: () => openSheet(`<h2>${t('Probleem melden')}</h2><p class="muted">${t('Wat is er aan de hand? Dit komt in het rapport.')}</p><textarea id="probNote" rows="4" placeholder="${t('Bijv. lekkage bij pakkingbus, oliepeil te laag')}"></textarea><div class="row sticky"><button class="btn ghost" data-act="closeSheet">${t('Annuleren')}</button><button class="btn warn" data-act="saveProblem">${t('Opslaan & verder')}</button></div>`),
   saveProblem: () => { const n = $('#probNote').value.trim(); if (!n) return toast(t('Beschrijf kort het probleem')); closeSheet(); recordStep('problem', n); },
   openRun: (a) => go('historie', { runId: a.dataset.id }),
   delRun: (a) => { if (!confirm(t('Ronde uit historie verwijderen?'))) return; state.runs = state.runs.filter((x) => x.id !== a.dataset.id); save(); go('historie'); },
@@ -993,16 +1094,19 @@ function composeHTML() {
   const c = compose, ar = state.activeRun;
   const step = c.inRun ? ar.route.steps[ar.idx] : null;
   const topic = c.inRun && ar.route.notifyTopic ? ar.route.notifyTopic : state.settings.ntfyTopic;
-  let h = c.kind === 'vraag'
+  let h = c.kind === 'nietok'
+    ? `<h2>✖ ${t('Niet OK')}</h2><p class="muted">${t('Bij taak:')} <b>${esc(tx(step, 'title'))}</b> · ${esc(step ? tx(curLoc(ar, step), 'name') : '')}</p><label>${t('Wat is er niet in orde?')}<textarea id="cText" rows="3" placeholder="${t('Bijv. lekkage bij pakkingbus, oliepeil te laag')}">${esc(c.text)}</textarea></label>`
+    : c.kind === 'vraag'
     ? `<h2>${t('❓ Hulp / vraag')}</h2><p class="muted">${t('Bij taak:')} <b>${esc(tx(step, 'title'))}</b> · ${esc(step ? tx(curLoc(ar, step), 'name') : '')}</p><label>${t('Je vraag')}<textarea id="cText" rows="4" placeholder="${t('Waar loop je tegenaan?')}">${esc(c.text)}</textarea></label>`
     : `<h2>${t('👁 Extra observatie')}</h2><label>${t('Wat zag je?')}<textarea id="cText" rows="4" placeholder="${t('Bijv. druppelende leiding bij …')}">${esc(c.text)}</textarea></label>
        <label>${t('Waar? (optioneel)')}${locSelect(c.locId, 'id="cLoc"', true)}</label>
        <div class="flbl">${t('Prioriteit')}</div><div class="seg prio"><button class="${c.urgent ? '' : 'on'}" data-act="cPrio" data-v="0">${t('Normaal')}</button><button class="${c.urgent ? 'on urgent' : ''}" data-act="cPrio" data-v="1">${t('⚠ Urgent')}</button></div>`;
   h += `<div class="flbl">${t('Foto\'s')}</div><div class="thumbs" id="thumbs">${thumbsHTML()}</div>
     <div class="row"><button class="btn" data-act="cCam">${t('📷 Foto maken')}</button><button class="btn" data-act="cGal">${t('🖼 Uit galerij')}</button></div>
+    ${c.kind === 'nietok' ? `<label class="switch"><input type="checkbox" id="cNotify" ${c.notify ? 'checked' : ''} ${topic ? '' : 'disabled'}><span>${t('Als melding (met foto) naar de beheerder sturen')}</span></label>` : ''}
     ${topic ? '' : `<p class="warnbox">${t('Er is nog geen meldingskanaal ingesteld (Meer → Meldingen). Het bericht wordt wel bewaard.')}</p>`}
     <p class="muted small">${navigator.onLine ? t('Wordt direct verstuurd.') : t('📴 Geen internet: wordt bewaard en automatisch verstuurd zodra er verbinding is.')}</p>
-    <div class="row sticky"><button class="btn ghost" data-act="closeSheet">${t('Annuleren')}</button><button class="btn primary" data-act="cSend">${navigator.onLine ? t('Versturen') : t('Opslaan & later versturen')}</button></div>`;
+    <div class="row sticky"><button class="btn ghost" data-act="closeSheet">${t('Annuleren')}</button><button class="btn ${c.kind === 'nietok' ? 'bad' : 'primary'}" data-act="cSend">${c.kind === 'nietok' ? t('Opslaan & verder') : navigator.onLine ? t('Versturen') : t('Opslaan & later versturen')}</button></div>`;
   return h;
 }
 const thumbsHTML = () => compose.photos.map((p, i) => `<div class="thumb"><img src="${p.url}" alt="Foto ${i + 1}"><button data-act="cDelPhoto" data-i="${i}" aria-label="${t('Foto verwijderen')}">✕</button></div>`).join('') || `<p class="muted small">${t('Nog geen foto\'s.')}</p>`;
@@ -1011,7 +1115,7 @@ function openCompose(kind) {
   const step = run ? ar.route.steps[ar.idx] : null;
   const prevCompose = null;
   openSheet('', {});
-  compose = prevCompose || { kind, text: '', photos: [], urgent: false, inRun: run, locId: step?.locationId || '' };
+  compose = prevCompose || { kind, text: '', photos: [], urgent: kind === 'nietok', inRun: run, locId: step?.locationId || '', notify: kind === 'nietok' && (isCrew() || !!ar?.route.notifyTopic) };
   $('.sheet-card').insertAdjacentHTML('beforeend', composeHTML());
   setTimeout(() => $('#cText')?.focus(), 50);
 }
@@ -1027,9 +1131,9 @@ async function addPhotos(files) {
 function buildItem(c) {
   const st = state.settings, ar = state.activeRun, name = st.userName || 'bemanning';
   const step = c.inRun ? ar.route.steps[ar.idx] : null;
-  const locName = c.kind === 'vraag' ? (step ? curLoc(ar, step).name : '') : (loc(c.locId)?.name || '');
+  const locName = c.kind === 'vraag' || c.kind === 'nietok' ? (step ? curLoc(ar, step).name : '') : (loc(c.locId)?.name || '');
   const now = new Date();
-  const title = c.kind === 'vraag' ? `Vraag van ${name}${locName ? ' – ' + locName : ''}` : c.kind === 'test' ? `Testmelding – ${state.shipName}` : `${c.urgent ? 'URGENT: ' : ''}Observatie van ${name}${locName ? ' – ' + locName : ''}`;
+  const title = c.kind === 'nietok' ? `✖ Niet OK: ${step?.title || ''} – ${name}${locName ? ' (' + locName + ')' : ''}` : c.kind === 'vraag' ? `Vraag van ${name}${locName ? ' – ' + locName : ''}` : c.kind === 'test' ? `Testmelding – ${state.shipName}` : `${c.urgent ? 'URGENT: ' : ''}Observatie van ${name}${locName ? ' – ' + locName : ''}`;
   const lines = c.kind === 'test' ? [`Het werkt! Meldingen van Schip Route komen op dit kanaal binnen.`, '', `👤 ${name}`, `🕒 ${fmtDT(now.toISOString())}`] : [
     c.text, '',
     locName ? `📍 Locatie: ${locName}` : '',
@@ -1044,8 +1148,8 @@ function buildItem(c) {
     id: 'm-' + rid(), kind: c.kind, createdAt: now.toISOString(), by: name, text: c.text, locName,
     routeName: step ? ar.route.name : '', taskTitle: step?.title || '', urgent: !!c.urgent,
     title, message: lines.filter((x, i) => x !== '' || i === 1).join('\n').trim(),
-    priority: c.kind === 'vraag' ? 4 : c.urgent ? 5 : 3,
-    tags: c.kind === 'vraag' ? ['question', 'ship'] : c.kind === 'test' ? ['bell', 'white_check_mark'] : c.urgent ? ['rotating_light', 'eyes'] : ['eyes'],
+    priority: c.kind === 'vraag' || c.kind === 'nietok' ? 4 : c.urgent ? 5 : 3,
+    tags: c.kind === 'nietok' ? ['x', 'warning'] : c.kind === 'vraag' ? ['question', 'ship'] : c.kind === 'test' ? ['bell', 'white_check_mark'] : c.urgent ? ['rotating_light', 'eyes'] : ['eyes'],
     topic, server, status: 'pending', photos: c.photos.map((p, i) => ({ name: `foto-${i + 1}.jpg`, blob: p.blob })),
   };
 }
@@ -1091,6 +1195,18 @@ Object.assign(actions, {
   cDelPhoto: (a) => { const [p] = compose.photos.splice(+a.dataset.i, 1); URL.revokeObjectURL(p.url); $('#thumbs').innerHTML = thumbsHTML(); },
   cSend: async () => {
     const c = compose; c.text = $('#cText').value.trim();
+    if (c.kind === 'nietok') {
+      if (!c.text) { $('#cText').focus(); return toast(t('Beschrijf kort wat er niet in orde is')); }
+      const ar = state.activeRun; const s = ar.route.steps[ar.idx]; const vals = (ar.values[s.id] ??= {});
+      for (const f of s.fields || []) { if (f.role === 'mDone') vals[f.id] = false; if (f.role === 'mRem') vals[f.id] = c.text; }
+      const notify = $('#cNotify')?.checked;
+      if (notify && !state.settings.userName && isCrew()) { const n = prompt(t('Wat is je naam? (komt in de melding)')); if (n?.trim()) { state.settings.userName = n.trim(); save(); } }
+      const item = notify ? buildItem(c) : null;
+      (ar.messages ??= []).push({ id: item?.id || 'n-' + rid(), kind: 'nietok', text: c.text, locName: tx(curLoc(ar, s), 'name'), taskTitle: s.title, urgent: false, at: new Date().toISOString(), photos: c.photos.length, sent: !!item });
+      save(); closeSheet(); recordStep('problem', c.text);
+      if (item) await queueItem(item);
+      return;
+    }
     if (!c.text && !c.photos.length) return toast(c.kind === 'vraag' ? t('Typ eerst je vraag') : t('Beschrijf wat je zag'));
     if ($('#cLoc')) c.locId = $('#cLoc').value;
     if (!state.settings.userName) { const n = prompt(t('Wat is je naam? (komt in de melding)')); if (n?.trim()) { state.settings.userName = n.trim(); save(); } }
@@ -1135,7 +1251,7 @@ function modeCard() {
     <p class="muted small">${t('Beheer: onderhoud, routes maken en versturen, historie, rapporten. Bemanning: alleen ontvangen routes uitvoeren, vragen en observaties.')}</p>
     ${!isCrew() ? `<div class="row"><button class="btn small ghost" data-act="pinSet">${st.pinHash ? t('Pincode wijzigen') : t('Pincode instellen')}</button>${st.pinHash ? `<button class="btn small ghost" data-act="pinClear">${t('Pincode verwijderen')}</button>` : ''}</div>` : ''}</section>`;
 }
-function setMode(m) { state.settings.mode = m; save(); closeSheet(); if (m === 'beheer') MT.ensureMaint(); go('routes'); toast(m === 'beheer' ? t('Beheer-modus') : t('Bemanning-modus')); }
+function setMode(m) { state.settings.mode = m; save(); closeSheet(); if (m === 'beheer') MT.ensureMaint(); go(m === 'beheer' ? 'vandaag' : 'routes'); toast(m === 'beheer' ? t('Beheer-modus') : t('Bemanning-modus')); }
 function pinSheet(kind, target) {
   const txt = { set: t('Kies een pincode (4–8 cijfers). Die is nodig om van Bemanning terug naar Beheer te gaan.'), ask: t('Voer de pincode in om naar Beheer te gaan.'), first: t('Wil je Beheer beveiligen met een pincode? Dat is optioneel; zonder pincode kan iedereen wisselen.') }[kind];
   openSheet(`<h2>🔒 ${kind === 'ask' ? t('Pincode') : t('Pincode (optioneel)')}</h2><p class="muted">${txt}</p><input id="pinIn" type="password" inputmode="numeric" autocomplete="off" maxlength="8" pattern="[0-9]*">
@@ -1165,8 +1281,7 @@ Object.assign(actions, {
 function viewCrewRoutes() {
   const ar = state.activeRun;
   let h = header(t('Mijn routes')) + `<p class="shipsub">🚢 ${esc(state.shipName)}${state.settings.userName ? ` · 👤 ${esc(state.settings.userName)}` : ''}</p>`;
-  if (ar) h += `<div class="card resume"><b>${t('Ronde bezig: {name}', { name: esc(tx(ar.route, 'name')) })}</b><p>${t('Stap {a} van {b} · gestart {c}', { a: Math.min(ar.idx + 1, ar.route.steps.length), b: ar.route.steps.length, c: fmtDT(ar.startedAt) })}</p><div class="row"><button class="btn ok big" data-act="resumeRun">${t('▶ Doorgaan')}</button></div></div>`;
-  h += installBanner() + `<div class="list">`;
+  h += resumeCard() + installBanner() + `<div class="list">`;
   const recv = state.routes.filter((r) => r.importedAt); // alleen ontvangen routes (geen demo's)
   if (!recv.length) h += `<p class="empty">${t('Nog geen routes ontvangen. Open de link die je (bijv. via WhatsApp) kreeg, of importeer het routebestand.')}</p>`;
   for (const r of [...recv].reverse()) {
@@ -1174,10 +1289,12 @@ function viewCrewRoutes() {
     h += `<article class="card route"><div class="tap" data-act="openRoute" data-id="${r.id}"><h2>${esc(tx(r, 'name'))}</h2><p>${plural(r.steps.length, t('taak'), t('taken'))} · ${plural(nLoc, t('locatie'), t('locaties'))}${r.from ? ` · ${t('van {name}', { name: `<b>${esc(r.from)}</b>` })}` : ''}</p>${r.description ? `<p class="muted">${esc(tx(r, 'description'))}</p>` : ''}</div>
       <div class="stack"><button class="btn ok big" data-act="startRun" data-id="${r.id}" ${r.steps.length ? '' : 'disabled'}>${t('▶ Start ronde')}</button></div></article>`;
   }
-  h += `</div><div class="stack"><div class="row"><button class="btn" data-act="newObs">${t('👁 Extra observatie')}</button><button class="btn" data-act="openOutbox">${t('📤 Outbox')}</button></div><div class="row"><button class="btn ghost" data-act="importFile">${t('📥 Route-bestand importeren')}</button><button class="btn ghost" data-act="pasteRoute">${t('📋 Route plakken')}</button></div></div>`;
-  const runs = [...state.runs].reverse().slice(0, 5);
-  if (runs.length) h += `<h3 class="sec">${t('Laatste rondes')}</h3><ul class="locs">${runs.map((run) => { const c = runStats(run); return `<li><span>${esc(run.routeName)}<small> · ${fmtDT(run.finishedAt)} · ✔ ${c.done} ↷ ${c.skipped} ⚠ ${c.problem}${run.reportSentAt ? ' · 📨 ' + t('verstuurd') : ''}</small></span><button class="btn small" data-act="sendReport" data-id="${run.id}">${run.reportSentAt ? t('Opnieuw sturen') : t('📨 Stuur rapport')}</button></li>`; }).join('')}</ul>`;
+  h += `</div><div class="row crewimp"><button class="btn small ghost" data-act="pasteRoute">${t('📋 Route plakken')}</button><button class="btn small ghost" data-act="importFile">${t('📥 Route-bestand')}</button></div>`;
   return h;
+}
+function crewRunsHTML() {
+  const runs = [...state.runs].reverse().slice(0, 5);
+  return runs.length ? `<section class="card"><h2>${t('Laatste rondes')}</h2><ul class="locs">${runs.map((run) => { const c = runStats(run); return `<li><span>${esc(run.routeName)}<small> · ${fmtDT(run.finishedAt)} · ✔ ${c.done} ↷ ${c.skipped} ⚠ ${c.problem}${run.reportSentAt ? ' · 📨 ' + t('verstuurd') : ''}</small></span><button class="btn small" data-act="sendReport" data-id="${run.id}">${run.reportSentAt ? t('Opnieuw sturen') : t('📨 Stuur rapport')}</button></li>`; }).join('')}</ul></section>` : '';
 }
 function crewRouteSheet(r) {
   if (!r) return;
@@ -1190,7 +1307,8 @@ function viewCrewMore() {
   h += `<section class="card"><h2>${t('🌐 Taal · Language · Bahasa')}</h2><div class="seg langseg">${Object.entries(LANGS).map(([k, v]) => `<button class="${k === getLang() ? 'on' : ''}" data-act="setLang" data-v="${k}">${v.flag} ${k.toUpperCase()}</button>`).join('')}</div></section>`;
   h += `<section class="card"><h2>${t('Instellingen')}</h2><label>${t('Mijn naam (in rapporten en meldingen)')}<input data-set-text="userName" value="${esc(st.userName || '')}"></label>
     ${tog('bigText', t('Extra grote tekst'))}${tog('vibrate', t('Trillen bij volgende stap'))}${tog('speak', t('Instructie uitspreken (spraak)'))}${tog('wakeLock', t('Scherm aan houden tijdens ronde'))}${fsToggle(tog)}</section>`;
-  h += `<section class="card"><h2>${t('📤 Outbox')}</h2><p class="muted small">${t('Vragen, observaties en rapporten gaan naar kanaal:')} <b>${esc(st.ntfyTopic || '—')}</b></p><button class="btn" data-act="openOutbox">${t('📤 Outbox openen')}</button></section>`;
+  h += crewRunsHTML();
+  h += `<section class="card"><h2>${t('📤 Outbox')}</h2><p class="muted small">${t('Vragen, observaties en rapporten gaan naar kanaal:')} <b>${esc(st.ntfyTopic || '—')}</b></p><div class="row"><button class="btn" data-act="openOutbox">${t('📤 Outbox openen')}</button><button class="btn" data-act="newObs">${t('👁 Extra observatie')}</button></div></section>`;
   h += modeCard();
   h += `<section class="card"><h2>${t('App')}</h2><p class="muted">${t('Versie')} ${APP_VERSION} ${t('· werkt offline na eerste keer openen · gegevens blijven op dit toestel.')}</p><button class="btn ghost" data-act="showInstall">${t('Installatie-uitleg')}</button></section>`;
   return h;
@@ -1301,7 +1419,26 @@ async function pollNtfy(manual = false) {
     const r = await fetch(`${base}/${encodeURIComponent(st.ntfyTopic)}/json?poll=1&since=${encodeURIComponent(st.ntfyPollId || '24h')}`, { cache: 'no-store' });
     if (!r.ok) throw new Error('ntfy ' + r.status);
     const msgs = (await r.text()).split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter((m) => m?.event === 'message');
+    const own = new Set((await OB.all().catch(() => [])).map((x) => x.title));
+    let nMsg = 0;
     for (const m of msgs) {
+      const kind = ntfyKind(m);
+      if (kind !== 'rapport') {
+        if (kind === 'test' || own.has(m.title) || inbox().some((x) => x.id === m.id)) continue;
+        if (kind === 'foto') {
+          const base_ = (m.title || '').replace(/^📷\s*\d+\/\d+\s*·\s*/, '');
+          if (own.has(base_)) continue;
+          let par = [...inbox()].reverse().find((x) => x.title === base_);
+          if (!par) { par = { id: m.id, kind: 'observatie', title: base_ || t('Foto'), message: '', time: new Date(m.time * 1000).toISOString(), photos: [] }; inbox().push(par); nMsg++; }
+          if (m.attachment?.url) (par.photos ||= []).push({ url: m.attachment.url, name: m.attachment.name || '', expires: m.attachment.expires || null });
+          continue;
+        }
+        const by = (/👤\s*(.+)/.exec(m.message || '') || [])[1] || '';
+        const locName = (/📍\s*[^:]*:\s*(.+)/.exec(m.message || '') || [])[1] || '';
+        inbox().push({ id: m.id, kind: kind === 'anders' ? 'observatie' : kind, title: m.title || '', message: m.message || '', time: new Date(m.time * 1000).toISOString(), by: by.trim(), locName: locName.trim(), urgent: (m.tags || []).includes('rotating_light'), photos: [] });
+        nMsg++;
+        continue;
+      }
       let pkg = null;
       try {
         if (m.click && /report=/.test(m.click)) pkg = await readHashPayload(m.click);
@@ -1311,8 +1448,10 @@ async function pollNtfy(manual = false) {
     }
     if (msgs.length) st.ntfyPollId = msgs[msgs.length - 1].id;
     st.ntfyPolledAt = new Date().toISOString(); save();
-    if (manual || n) toast(n ? t('{n} nieuw(e) rapport(en) opgehaald', { n }) : seen ? t('Geen nieuwe rapporten (al geïmporteerd)') : t('Geen rapporten in het meldingskanaal (ntfy bewaart ze ±12 uur)'), 3500);
-    if (n || view.tab === 'historie') render();
+    if (inbox().length > 300) state.inbox = inbox().slice(-300);
+    if (nMsg) save();
+    if (manual || n || nMsg) toast([n ? t('{n} nieuw(e) rapport(en) opgehaald', { n }) : '', nMsg ? t('{n} nieuwe melding(en)', { n: nMsg }) : ''].filter(Boolean).join(' · ') || (seen ? t('Geen nieuwe rapporten (al geïmporteerd)') : t('Niets nieuws in het meldingskanaal (ntfy bewaart berichten ±12 uur)')), 3500);
+    if (n || nMsg || ['historie', 'meldingen', 'vandaag'].includes(view.tab)) render();
   } catch (e) { console.warn(e); if (manual) toast(t('Ophalen lukte niet: {msg}', { msg: e.message }), 4000); }
   finally { polling = false; }
   return n;
@@ -1347,7 +1486,7 @@ Object.assign(actions, {
   seenRun: (a) => { const r = state.runs.find((x) => x.id === a.dataset.id); if (r?.received) { r.received.seenAt = new Date().toISOString(); save(); render(); } },
   seenAll: () => { const now = new Date().toISOString(); for (const r of received()) r.received.seenAt ||= now; save(); render(); toast(t('Alles gemarkeerd als gezien')); },
   openRunH: (a) => go('historie', { runId: a.dataset.id }),
-  goMaradDone: () => { MT.actions.mView({ dataset: { v: 'done' } }); go('onderhoud'); },
+  goMaradDone: () => { closeSheet(); MT.actions.mView({ dataset: { v: 'done' } }); go('onderhoud'); },
   goSug: () => { MT.actions.mView({ dataset: { v: 'sug' } }); go('onderhoud'); },
   ntfyPoll: () => pollNtfy(true),
   repClip: async () => { let txt = ''; try { txt = await navigator.clipboard.readText(); } catch { /* geen toegang */ } if (!(await handlePasted(txt))) { toast(t('Niets bruikbaars op het klembord – plak in het vak (lang indrukken → Plak).'), 4000); $('#repPaste')?.focus(); } },
@@ -1359,6 +1498,17 @@ Object.assign(actions, {
 });
 let lastPoll = 0;
 function maybePoll() { if (!isCrew() && navigator.onLine && Date.now() - lastPoll > 60000) { lastPoll = Date.now(); pollNtfy(false); } }
+Object.assign(actions, {
+  goTab: (a) => { closeSheet(); go(a.dataset.v); if (a.dataset.v === 'meldingen') maybePoll(); },
+  appMenu: () => appMenu(),
+  melMode: (a) => { view.mel = a.dataset.v; render(); maybePoll(); },
+  melFilter: (a) => { view.melF = a.dataset.v; render(); },
+  melSeen: (a) => { const m = inbox().find((x) => x.id === a.dataset.id); if (m) { m.seenAt = new Date().toISOString(); save(); render(); } },
+  melSeenAll: () => { const now = new Date().toISOString(); for (const m of inbox()) m.seenAt ||= now; save(); render(); toast(t('Alles gemarkeerd als gezien')); },
+  tdStart: (a) => { const id = MT.startFixed(a.dataset.k); if (id) startRun(id); else toast(t('Geen taken')); },
+  smartOrder: () => openSheet(`<h2>🧭 ${t('Slimme volgorde')}</h2><p class="muted">${t('Sorteert de taken op locatie, zodat je elke ruimte maar één keer bezoekt. De machinekamer-onderdelen blijven bij elkaar.')}</p><div class="stack"><button class="btn primary big" data-act="smartApply" data-v="va">⬅️ ${t('Van voor naar achter')}</button><button class="btn big" data-act="smartApply" data-v="av">➡️ ${t('Van achter naar voor')}</button></div><p class="muted small">${t('De keuze wordt onthouden voor vaste rondes.')}</p>`),
+  smartApply: (a) => { const r = route(view.routeId); if (!r) return; state.settings.orderDir = a.dataset.v; r.steps = orderSteps(r.steps, state, a.dataset.v === 'av' ? 'slimAV' : 'slimVA'); touch(r); closeSheet(); render(); toast(t('Slimme volgorde toegepast: {n} locaties', { n: new Set(r.steps.map((x) => x.locationId)).size })); },
+});
 
 // ---------- onderhoud (MARAD) ----------
 const MT = initMaint({ legacyMaint, state, save, rid, esc, header, openSheet, closeSheet, toast, render: () => render(), go: (...x) => go(...x), shareFile, csvCell, fmtDT, plural, locSelect, loc, tx, STRATEGIES, orderSteps, waNum: (p) => waNum(p), buildShareLink, routePackage, openShare: (r) => openShare(r) });
@@ -1368,7 +1518,7 @@ Object.assign(actions, MT.actions);
 if (!state.settings.lang) { state.settings.lang = getLang(); save(); }
 // Eerste start via een gedeelde route-link → bemanning; anders (eigen toestel / bestaande gegevens) → beheer.
 if (!state.settings.mode) { state.settings.mode = /route=/.test(location.hash) && !state.runs.length ? 'bemanning' : 'beheer'; save(); }
-if (!isCrew()) MT.ensureMaint().then((m) => { if (m?.tasks && (view.tab === 'routes' || view.tab === 'onderhoud') && !view.routeId && $('#sheet').hidden) render(); });
+if (!isCrew()) MT.ensureMaint().then((m) => { if (m?.tasks && ['routes', 'onderhoud', 'vandaag'].includes(view.tab || 'vandaag') && !view.routeId && $('#sheet').hidden) render(); });
 render();
 checkHash();
 // iPhone in Safari (niet vanaf beginscherm): installatie-uitleg automatisch tonen (eenmaal per sessie, niet bij een gedeelde link)
