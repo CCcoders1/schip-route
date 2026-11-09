@@ -129,6 +129,7 @@ const RULES = [
   ['l-brug', /\bbridge\b|\bwheel ?house\b|\bnautical\b|\bnavigation\b|\bradar\b|\becdis\b|\bgmdss\b|\bvhf\b|\bais\b|\bcommunication\b|\bgyro|\bcompass/],
   ['l-mk-bal', /\bballast\b/],
   ['l-brug', /\bport state|\bvetting\b|\bpsc\b/],
+  ['l-brug', /\b(fire|general|abandon ship|emergency) alarm|\balarm panel|\bfire detection/],
   ['l-achter', /\bgarbage|\bincinerat|\bwaste\b/],
   ['l-voor', /\bforebody|\bfore ?peak/],
   ['l-mk-hm', /\bhydraulic|\bhydr\./],

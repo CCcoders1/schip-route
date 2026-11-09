@@ -1,9 +1,9 @@
 // Service worker: alles offline beschikbaar (cache-first + achtergrond-update) + Background Sync voor de outbox.
 importScripts('./js/outbox-core.js');
-const VERSION = 'schiproute-v1.4.0';
+const VERSION = 'schiproute-v1.5.0';
 const ASSETS = [
   './', './index.html', './manifest.webmanifest', './css/app.css',
-  './js/app.js', './js/outbox-core.js', './js/i18n.js', './js/i18n-dict.js', './js/marad.js', './js/maint.js', './vendor/xlsx.mini.min.js', './data/marad.enc.json', './js/store.js', './js/seed.js', './js/planner.js', './js/share.js', './js/shipmap.js',
+  './js/app.js', './js/outbox-core.js', './js/i18n.js', './js/i18n-dict.js', './js/marad.js', './js/maint.js', './js/suggest.js', './vendor/xlsx.mini.min.js', './data/marad.enc.json', './js/store.js', './js/seed.js', './js/planner.js', './js/share.js', './js/shipmap.js',
   './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png', './icons/apple-touch-icon.png',
 ];
 self.addEventListener('install', (e) => {
@@ -17,13 +17,13 @@ self.addEventListener('fetch', (e) => {
   if (req.method !== 'GET' || new URL(req.url).origin !== location.origin) return;
   if (req.mode === 'navigate') {
     e.respondWith(caches.match('./index.html').then((hit) => {
-      const net = fetch(req).then((res) => { if (res.ok) caches.open(VERSION).then((c) => c.put('./index.html', res.clone())); return res; }).catch(() => hit);
+      const net = fetch(req).then((res) => { if (res.ok) caches.open(VERSION).then((c) => c.put('./index.html', res.clone())); return res; }).catch(() => hit || Response.error());
       return hit || net;
     }));
     return;
   }
   e.respondWith(caches.match(req, { ignoreSearch: true }).then((hit) => {
-    const net = fetch(req).then((res) => { if (res.ok) { const copy = res.clone(); caches.open(VERSION).then((c) => c.put(req, copy)); } return res; }).catch(() => hit);
+    const net = fetch(req).then((res) => { if (res.ok) { const copy = res.clone(); caches.open(VERSION).then((c) => c.put(req, copy)); } return res; }).catch(() => hit || Response.error());
     return hit || net;
   }));
 });

@@ -47,7 +47,7 @@
       if (item.photosSent.includes(i)) continue;
       const p = photos[i];
       const url = `${base}/${encodeURIComponent(item.topic)}?` + q({ filename: p.name || `foto-${i + 1}.jpg`, title: p.title || `📷 ${i + 1}/${photos.length} · ${item.title}`, tags: p.tags || 'camera', priority: item.priority >= 4 ? item.priority : undefined });
-      const r = await fetch(url, { method: 'PUT', body: p.blob });
+      const r = await fetch(url, { method: 'PUT', body: p.blob || new Blob([p.buf], { type: p.type || 'application/octet-stream' }) });
       if (!r.ok) throw new Error('foto ' + (i + 1) + ': ntfy ' + r.status + ' ' + (await r.text().catch(() => '')).slice(0, 120));
       item.photosSent.push(i); await put(item);
     }

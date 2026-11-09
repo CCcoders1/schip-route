@@ -2,9 +2,10 @@
 // Belangrijk: de app schrijft NIET terug naar MARAD. Afmeldingen gaan naar de export "Afgemeld voor MARAD".
 import { t, getLang, LOCALES } from './i18n.js';
 import { parseMarad, mergeMarad, autoLocation, status, dueInDays, isHours, markDone, undoDone, todayISO, parseDate } from './marad.js';
+import { suggestions, findSuggestion, rankStats, periodKey } from './suggest.js';
 
 let A; // helpers uit app.js
-const F = { view: 'tree', st: 'all', rank: '', loc: '', q: '' };
+const F = { view: 'tree', st: 'all', loc: '', q: '' };
 const sel = new Set();
 const open = new Set();
 let preview = null; // import in voorbereiding
@@ -55,7 +56,7 @@ export function initMaint(api) {
   $f('#fileMarad')?.addEventListener('change', async (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) readFile(f); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.id === 'mPw') { e.preventDefault(); actions.mUnlock(); } });
   if (A.legacyMaint) migrateLegacy(A.legacyMaint);
-  return { view, actions, applyRun, ensureMaint, runExtra, maradFields, persist };
+  return { view, actions, applyRun, applyPending, ensureMaint, runExtra, maradFields, persist, refreshTemplates, rankNames, templateInfo, sugCount };
 }
 const $f = (s) => document.querySelector(s);
 
@@ -73,8 +74,26 @@ export function ensureMaint() {
   if (loaded) return Promise.resolve(M());
   return (loading ||= (async () => {
     try { const m = await OBK().get('maint'); if (m?.tasks && !A.state.maint) A.state.maint = m; } catch (e) { console.warn('MARAD laden', e); }
-    loaded = true; return M();
+    loaded = true;
+    if (M()?.tasks) { relink(); afterLoad(false); }
+    return M();
   })());
+}
+
+// nieuwe trefwoordregels ook toepassen op taken die nog geen locatie hebben (niet handmatig gekozen)
+function relink() { let n = 0; for (const x of M().tasks) if (!x.locId && !x.locManual) { const l = autoLoc(x, comp(x)); if (l) { x.locId = l; n++; } } if (n) persist(); }
+/** Na laden/ontgrendelen: wachtende rapporten afmelden en terugkerende sjablonen verversen. */
+function afterLoad(announce = true) {
+  const p = applyPending();
+  const n = refreshTemplates();
+  if (announce || n || p) { const msg = [p ? t('{n} MARAD-taken uit ontvangen rapporten afgemeld', { n: p }) : '', n ? t('🔁 {n} sjabloon-route(s) ververst', { n }) : ''].filter(Boolean).join(' · '); if (msg) setTimeout(() => A.toast(msg, 4000), 400); }
+}
+/** Rapporten die binnenkwamen toen MARAD vergrendeld was alsnog afmelden (dubbel wordt overgeslagen). */
+export function applyPending() {
+  if (!M()?.tasks) return 0; let n = 0;
+  for (const run of A.state.runs) if (run.received && !run.maradApplied && run.results?.some((r) => r.marad)) { const r = applyRun(run); run.maradDone = (run.maradDone || 0) + r.done; run.maradApplied = true; n += r.done; }
+  if (n) A.save();
+  return n;
 }
 
 // ---------- versleutelde meegeleverde export ----------
@@ -192,7 +211,7 @@ function filtered() {
     if (F.st === 'overdue' && st !== 'overdue') return false;
     if (F.st === 'week' && !(st === 'overdue' || st === 'week')) return false;
     if (F.st === 'month' && !(st === 'overdue' || st === 'week' || st === 'month')) return false;
-    if (F.rank && !x.rank.includes(F.rank)) return false;
+    if (!rankOk(x)) return false;
     if (F.loc === '__none' ? x.locId : F.loc && x.locId !== F.loc) return false;
     if (q && !(x.name.toLowerCase().includes(q) || compText(comp(x)).toLowerCase().includes(q))) return false;
     return true;
@@ -233,21 +252,42 @@ function listHTML() {
 function selbar() {
   return sel.size ? `<div class="selbar"><span>${t('{n} geselecteerd', { n: sel.size })}</span><button class="btn ok" data-act="mMakeRoute">${t('🧭 Maak route')}</button><button class="iconbtn" data-act="mSelClear" aria-label="${t('Selectie wissen')}">✕</button></div>` : '';
 }
+// ---------- functies (Rank) ----------
+const DEFAULT_RANKS = ['Master', 'Chief Officer', '2nd Officer', 'Junior Officer', 'Engineer', 'Junior engineer', 'Marof'];
+/** Functienamen: uit de MARAD-gegevens (als ontgrendeld), anders een standaardlijst. */
+export function rankNames() { const rs = rankStats(M()).map((r) => r.rank); return rs.length ? rs : DEFAULT_RANKS; }
+const myRank = () => A.state.settings.myRank || 'Engineer';
+function rankSel() {
+  const st = A.state.settings;
+  if (!Array.isArray(st.rankSel)) { st.rankSel = M()?.tasks?.some((x) => x.rank.includes(myRank())) ? [myRank()] : []; A.save(); }
+  return new Set(st.rankSel);
+}
+const rankOk = (x, rs = rankSel()) => !rs.size || x.rank.some((r) => rs.has(r));
+function rankChips() {
+  const rs = rankSel(); const my = myRank();
+  return `<div class="chips rchips" role="group" aria-label="${t('Functie')}"><button class="chip ${rs.size ? '' : 'on'}" data-act="mRankAll">${t('Alle functies')}</button>${rankStats(M()).map((r) => `<button class="chip ${rs.has(r.rank) ? 'on' : ''}" data-act="mRank" data-v="${A.esc(r.rank)}" aria-pressed="${rs.has(r.rank)}">${r.rank === my ? '⭐ ' : ''}${A.esc(r.rank)} <i class="cn">${r.n}</i>${r.overdue ? `<b class="cr" title="${t('Te laat')}">${r.overdue}</b>` : ''}</button>`).join('')}</div>`;
+}
+
 export function view() {
   const m = M();
   let h = A.header(t('Onderhoud'));
   if (!loaded) { ensureMaint().then(() => A.render()); return h + `<p class="empty">${t('MARAD-gegevens laden…')}</p>`; }
   if (!m?.tasks) return h + unlockHTML();
-  const c = counts(m.tasks);
+  const rs = rankSel();
+  const mine = m.tasks.filter((x) => rankOk(x, rs));
+  const c = counts(mine);
   const open_ = m.signoffs.filter((s) => !s.enteredInMarad).length;
   h += `<p class="shipsub">🔧 MARAD · ${A.esc(m.ship || A.state.shipName)} · ${t('{n} taken', { n: m.tasks.length })} · ${t('import {d}', { d: A.fmtDT(m.lastImport?.at) })}</p>`;
+  h += rankChips();
   h += `<div class="mstats"><button data-act="mQuick" data-v="overdue">${dot('overdue')}<b>${c.overdue}</b><small>${t('Te laat')}</small></button><button data-act="mQuick" data-v="week">${dot('week')}<b>${c.week}</b><small>${t('≤ 7 d')}</small></button><button data-act="mQuick" data-v="month">${dot('month')}<b>${c.month}</b><small>${t('≤ 30 d')}</small></button><button data-act="mQuick" data-v="all">${dot('later')}<b>${c.later}</b><small>${t('Later')}</small></button><button data-act="mQuick" data-v="all">${dot('hours')}<b>${c.hours}</b><small>${t('Draaiuren')}</small></button></div>`;
-  h += `<div class="seg mviews"><button class="${F.view === 'tree' ? 'on' : ''}" data-act="mView" data-v="tree">${t('🌳 Boom')}</button><button class="${F.view === 'list' ? 'on' : ''}" data-act="mView" data-v="list">${t('☰ Lijst')}</button><button class="${F.view === 'done' ? 'on' : ''}" data-act="mView" data-v="done">${t('✔ Afgemeld')}${open_ ? ` (${open_})` : ''}</button></div>`;
+  if (rs.size) h += `<p class="muted small">👤 ${A.esc([...rs].join(', '))} · ${t('{n} van {m} taken', { n: mine.length, m: m.tasks.length })}</p>`;
+  const vb = (k, lbl) => `<button class="${F.view === k ? 'on' : ''}" data-act="mView" data-v="${k}">${lbl}</button>`;
+  h += `<div class="seg mviews">${vb('tree', t('🌳 Boom'))}${vb('list', t('☰ Lijst'))}${vb('sug', t('💡 Voorstel'))}${vb('done', t('✔ Afgemeld') + (open_ ? ` (${open_})` : ''))}</div>`;
   if (F.view === 'done') return h + doneHTML();
-  const ranks = [...new Set(m.tasks.flatMap((x) => x.rank))].sort();
+  if (F.view === 'sug') return h + sugHTML();
   const stb = (k, lbl) => `<button class="${F.st === k ? 'on' : ''}" data-act="mSt" data-v="${k}">${lbl}</button>`;
   h += `<div class="seg mst">${stb('overdue', t('Te laat'))}${stb('week', t('7 dagen'))}${stb('month', t('30 dagen'))}${stb('all', t('Alles'))}</div>`;
-  h += `<div class="mfilters"><input type="search" data-mf="q" value="${A.esc(F.q)}" placeholder="${t('🔍 Zoek taak of component')}"><select data-mf="rank"><option value="">${t('Alle functies')}</option>${ranks.map((r) => `<option ${r === F.rank ? 'selected' : ''}>${A.esc(r)}</option>`).join('')}</select><select data-mf="loc"><option value="">${t('Alle locaties')}</option><option value="__none" ${F.loc === '__none' ? 'selected' : ''}>${t('— niet gekoppeld —')}</option>${A.state.locations.map((l) => `<option value="${l.id}" ${l.id === F.loc ? 'selected' : ''}>${A.esc(A.tx(l, 'name'))}</option>`).join('')}</select></div>`;
+  h += `<div class="mfilters"><input type="search" data-mf="q" value="${A.esc(F.q)}" placeholder="${t('🔍 Zoek taak of component')}"><select data-mf="loc"><option value="">${t('Alle locaties')}</option><option value="__none" ${F.loc === '__none' ? 'selected' : ''}>${t('— niet gekoppeld —')}</option>${A.state.locations.map((l) => `<option value="${l.id}" ${l.id === F.loc ? 'selected' : ''}>${A.esc(A.tx(l, 'name'))}</option>`).join('')}</select></div>`;
   h += `<p class="muted small">${t('7/30 dagen = inclusief te laat. Gesorteerd op vervaldatum.')} <span id="mCount"></span></p>`;
   h += `<div class="row msel"><button class="btn small" data-act="mSelVisible">${t('☑ Selecteer zichtbare')}</button><button class="btn small" data-act="mSelDue">${t('☑ Te laat + 7 dagen')}</button></div>`;
   h += `<div id="mList" class="mlist">${listHTML()}</div>`;
@@ -255,6 +295,56 @@ export function view() {
   h += `<div id="mSelbar">${selbar()}</div>`;
   return h;
 }
+
+// ---------- voorgestelde routes ----------
+const KIND_ICON = { safety: '🦺', mk: '⚙️', week: '📅', month: '🗓', hours: '⏱', overdue: '⏰' };
+function sugName(sg) {
+  const f = sg.ranks.join(' / ');
+  return { safety: t('Wekelijkse safety-ronde – {f}', { f }), mk: t('Wekelijkse machinekamerronde – {f}', { f }), week: t('Wekelijkse ronde – {f}', { f }), month: t('Maandelijkse ronde – {f}', { f }), hours: t('Draaiuren-onderhoud – {f}', { f }), overdue: t('Achterstallig onderhoud – {f}', { f }) }[sg.kind];
+}
+const sugDesc = (sg) => ({ safety: t('Taken met interval ≤ 2 weken: safety, reddingsmiddelen, brandbestrijding, alarmen.'), mk: t('Taken met interval ≤ 2 weken in machinekamer en technische systemen.'), week: t('Alle taken met interval ≤ 2 weken.'), month: t('Alle taken met interval van een maand.'), hours: t('Taken op draaiuren (te laat of bijna aan de beurt).'), overdue: t('Alle taken die nu te laat zijn.') }[sg.kind]);
+const periodLbl = (p) => (p === 'month' ? t('maandelijks') : t('wekelijks'));
+let SG = [];
+function allSug() { SG = suggestions(M(), { min: 3 }); return SG; }
+const sugBy = (k) => SG.find((x) => x.key === k) || allSug().find((x) => x.key === k);
+export function sugCount() { return M()?.tasks ? allSug().filter((x) => x.ranks.some((r) => rankSel().has(r)) || !rankSel().size).length : 0; }
+const tplFor = (key) => (A.state.templates || []).find((x) => x.key === key);
+function sugCard(sg) {
+  const tp = tplFor(sg.key); const r = tp && A.state.routes.find((x) => x.id === tp.routeId);
+  const near = sg.tasks.filter((x) => ['overdue', 'week'].includes(status(x))).length;
+  return `<article class="card sug k-${sg.kind}"><h3>${KIND_ICON[sg.kind]} ${A.esc(sugName(sg))}</h3><p class="muted small">👤 ${A.esc(sg.ranks.join(', '))} · ${sugDesc(sg)}</p>
+    <p class="sugstats"><span class="tag">${t('{n} taken', { n: sg.tasks.length })}</span> <span class="tag">${t('{n} nu aan de beurt', { n: sg.due.length })}</span>${sg.overdue ? ` <span class="tag warn">${t('{n} te laat', { n: sg.overdue })}</span>` : ''}${sg.kind !== 'hours' && sg.nextDue ? ` <small>· ${t('volgende: {d}', { d: fmtD(sg.nextDue) })}</small>` : ''}${near && near !== sg.due.length ? ` <small>· ${t('{n} binnen 7 d', { n: near })}</small>` : ''}</p>
+    ${sg.noLoc ? `<p class="unl small">📍 ${t('{n} taken zonder locatie (kies er een bij Maak route of koppel ze in de lijst)', { n: sg.noLoc })}</p>` : ''}
+    ${tp ? `<p class="okc small">🔁 ${t('Sjabloon actief ({p}) → route "{r}"', { p: periodLbl(tp.period), r: A.esc(r ? A.tx(r, 'name') : tp.name) })}${tp.assignee ? ' · 👤 ' + A.esc(tp.assignee) : ''}</p>` : ''}
+    <div class="row"><button class="btn ok" data-act="sgRoute" data-k="${A.esc(sg.key)}">${t('🧭 Maak route')}</button><button class="btn" data-act="sgSend" data-k="${A.esc(sg.key)}">${t('📲 Stuur naar…')}</button></div>
+    <div class="row"><button class="btn small ghost" data-act="sgShow" data-k="${A.esc(sg.key)}">${t('☰ Taken bekijken')}</button>${tp ? `<button class="btn small ghost" data-act="mTplStop" data-id="${tp.id}">${t('Sjabloon stoppen')}</button>` : `<button class="btn small ghost" data-act="sgRoute" data-k="${A.esc(sg.key)}" data-tpl="1">${t('🔁 Als terugkerend sjabloon')}</button>`}</div></article>`;
+}
+function sugHTML() {
+  const rs = rankSel();
+  const xs = allSug().filter((x) => !rs.size || x.ranks.some((r) => rs.has(r)));
+  let h = `<p class="infobox">${t('💡 Voorstellen op basis van functie (Rank) en interval. "Maak route" zet de taken die nu aan de beurt zijn op volgorde van locatie. Een sjabloon ververst de route elke week of maand met de taken die dan aan de beurt zijn.')}</p>`;
+  if (!xs.length) return h + `<p class="empty">${t('Geen voorstellen voor deze functie(s). Kies "Alle functies".')}</p>`;
+  return h + xs.map(sugCard).join('');
+}
+function sugTasksSheet(sg) {
+  A.openSheet(`<h2>${KIND_ICON[sg.kind]} ${A.esc(sugName(sg))}</h2><p class="muted small">${t('{n} taken · {d} nu aan de beurt', { n: sg.tasks.length, d: sg.due.length })}</p><div class="mlist">${[...sg.tasks].sort(byDue).map(taskRow).join('')}</div><button class="btn ghost" data-act="closeSheet">${t('Sluiten')}</button>`);
+}
+const dueSoon = (sg) => sg.tasks.filter((x) => ['overdue', 'week'].includes(status(x)));
+function pickSet(sg, k) { return k === 'all' ? sg.tasks : k === 'soon' ? dueSoon(sg) : sg.due; }
+function commonLoc(tasks) { const c = {}; for (const x of tasks) if (x.locId && A.loc(x.locId)) c[x.locId] = (c[x.locId] || 0) + 1; return Object.entries(c).sort((a, b) => b[1] - a[1])[0]?.[0] || A.state.locations[0]?.id || ''; }
+/** Route-object uit MARAD-taken (nog niet opgeslagen). */
+function buildRoute(tasks, { name, assignee = '', strategy = 'kortste', fallback = '', description = '' }) {
+  const steps = tasks.map((x) => {
+    const c = comp(x);
+    return {
+      id: A.rid(), locationId: A.loc(x.locId) ? x.locId : fallback || null, title: x.name,
+      instruction: [c ? (c.code ? c.code + ' – ' : '') + c.name : '', ivText(x.interval), x.rank.length ? '👤 ' + x.rank.join(', ') : ''].filter(Boolean).join(' · '),
+      fields: maradFields(x), marad: { id: x.id, comp: c ? (c.code ? c.code + ' – ' : '') + c.name : '', interval: x.interval?.text || '', due: x.dueDate }, workCard: x.workCard || '',
+    };
+  });
+  return { id: 'r-' + A.rid(), name, description: description || t('Uit MARAD: {n} taken', { n: steps.length }), assignee, createdAt: Date.now(), updatedAt: Date.now(), source: 'marad', steps: A.orderSteps(steps, A.state, strategy) };
+}
+
 function doneHTML() {
   const m = M(); const xs = [...m.signoffs].reverse();
   const openS = xs.filter((s) => !s.enteredInMarad), arch = xs.filter((s) => s.enteredInMarad);
@@ -277,6 +367,7 @@ function onInput(e) {
 function onChange(e) {
   const el = e.target;
   if (el.dataset?.msel) { if (el.checked) sel.add(el.dataset.msel); else sel.delete(el.dataset.msel); const sb = $f('#mSelbar'); if (sb) sb.innerHTML = selbar(); }
+  if (el.id === 'sgLoc') fillSendLinks();
   if (el.id === 'mtLoc') { const x = M().tasks.find((y) => y.id === el.dataset.id); x.locId = el.value || null; x.locManual = true; S(); A.toast(t('Locatie gekoppeld')); }
 }
 function taskSheet(x) {
@@ -300,33 +391,106 @@ function taskSheet(x) {
   if (x.doneLog?.length) h += `<p class="muted small">${t('Historie in app:')} ${x.doneLog.map((d) => fmtD(d.date) + (d.by ? ' (' + A.esc(d.by) + ')' : '')).join(', ')}</p>`;
   A.openSheet(h, { mTask: x.id });
 }
-function makeRouteSheet() {
-  const tasks = M().tasks.filter((x) => sel.has(x.id));
-  const nUn = tasks.filter((x) => !A.loc(x.locId)).length;
+let MR = null; // context van "Route maken"
+function makeRouteSheet(ctx = null) {
+  // ctx: { sg, tpl } bij een voorstel, anders de selectie
+  MR = ctx;
+  const sg = ctx?.sg;
+  const sets = sg ? [['due', t('Nu aan de beurt'), sg.due], ['soon', t('Te laat + 7 dagen'), dueSoon(sg)], ['all', t('Hele groep'), sg.tasks]].filter((x, i, arr) => x[2].length && arr.findIndex((y) => y[2].length === x[2].length) === i) : null;
+  const tasks = sg ? (sets[0]?.[2] || []) : M().tasks.filter((x) => sel.has(x.id));
+  const nUn = (sg ? sg.tasks : tasks).filter((x) => !A.loc(x.locId)).length;
   const locs = new Set(tasks.map((x) => x.locId).filter(Boolean)).size;
-  A.openSheet(`<h2>${t('🧭 Route maken uit onderhoud')}</h2><p>${t('{n} taken op {l} locaties', { n: tasks.length, l: locs })}</p>
-    <label>${t('Naam')}<input id="mrName" value="${A.esc(t('Onderhoud {d}', { d: fmtD(todayISO()) }))}"></label>
-    <label>${t('Bestemd voor')}<select id="mrTo"><option value="">${t('— niemand / mezelf —')}</option>${A.state.contacts.map((c) => `<option>${A.esc(c.name)}</option>`).join('')}</select></label>
-    <label>${t('Volgorde')}<select id="mrStrat">${Object.entries(A.STRATEGIES).map(([k, v]) => `<option value="${k}">${A.esc(v.label)}</option>`).join('')}</select></label>
-    ${nUn ? `<div class="warnbox">${t('{n} taken hebben nog geen locatie. Kies een locatie voor deze taken:', { n: nUn })}${A.locSelect(A.state.locations[0]?.id || '', 'id="mrLoc"', true)}</div>` : ''}
+  const rk = sg ? sg.ranks : [];
+  const cs = sortContacts(rk);
+  const defName = sg ? sugName(sg) : t('Onderhoud {d}', { d: fmtD(todayISO()) });
+  A.openSheet(`<h2>${t('🧭 Route maken uit onderhoud')}</h2>${sg ? `<p class="muted small">${KIND_ICON[sg.kind]} ${A.esc(sugName(sg))}</p>` : `<p>${t('{n} taken op {l} locaties', { n: tasks.length, l: locs })}</p>`}
+    ${sets ? `<div class="flbl">${t('Welke taken?')}</div><div class="radios">${sets.map(([k, l, xs], i) => `<label class="switch"><input type="radio" name="mrSet" value="${k}" ${i ? '' : 'checked'}><span>${l} (${xs.length})</span></label>`).join('')}</div>` : ''}
+    <label>${t('Naam')}<input id="mrName" value="${A.esc(defName)}"></label>
+    <label>${t('Bestemd voor')}<select id="mrTo"><option value="">${t('— niemand / mezelf —')}</option>${cs.map((c) => `<option ${c.match && c === cs[0] ? 'selected' : ''} value="${A.esc(c.name)}">${c.match ? '⭐ ' : ''}${A.esc(c.name)}${c.func ? ' · ' + A.esc(c.func) : ''}</option>`).join('')}</select></label>
+    <label>${t('Volgorde')}<select id="mrStrat">${Object.entries(A.STRATEGIES).map(([k, v]) => `<option value="${k}" ${k === 'kortste' && sg ? 'selected' : ''}>${A.esc(v.label)}</option>`).join('')}</select></label>
+    ${nUn ? `<div class="warnbox">${t('{n} taken hebben nog geen locatie. Kies een locatie voor deze taken:', { n: nUn })}${A.locSelect(commonLoc(sg ? sg.tasks : tasks), 'id="mrLoc"', true)}</div>` : ''}
+    ${sg ? `<label class="switch"><input type="checkbox" id="mrTpl" ${ctx.tpl ? 'checked' : ''}><span>${t('🔁 Terugkerend sjabloon: route elke {p} verversen met de taken die dan aan de beurt zijn', { p: sg.period === 'month' ? t('maand') : t('week') })}</span></label>` : ''}
     <p class="muted small">${t('Elke taak krijgt de velden "Uitgevoerd ja/nee" en "Opmerking" (bij draaiuren ook de urenstand). Na de ronde worden uitgevoerde taken afgemeld en komen ze in "Afgemeld voor MARAD".')}</p>
     <div class="row sticky"><button class="btn ghost" data-act="closeSheet">${t('Annuleren')}</button><button class="btn primary" data-act="mCreateRoute">${t('Route maken')}</button></div>`);
 }
 function createRoute() {
-  const tasks = M().tasks.filter((x) => sel.has(x.id));
-  const fallback = $f('#mrLoc')?.value;
-  const steps = tasks.map((x) => {
-    const c = comp(x);
-    const locationId = A.loc(x.locId) ? x.locId : fallback;
-    return {
-      id: A.rid(), locationId, title: x.name,
-      instruction: [c ? (c.code ? c.code + ' – ' : '') + c.name : '', ivText(x.interval), x.rank.length ? '👤 ' + x.rank.join(', ') : ''].filter(Boolean).join(' · '),
-      fields: maradFields(x), marad: { id: x.id, comp: c ? (c.code ? c.code + ' – ' : '') + c.name : '', interval: x.interval?.text || '', due: x.dueDate }, workCard: x.workCard || '',
-    };
-  });
-  const r = { id: 'r-' + A.rid(), name: $f('#mrName').value.trim() || t('Onderhoud'), description: t('Uit MARAD: {n} taken', { n: steps.length }), assignee: $f('#mrTo').value, createdAt: Date.now(), updatedAt: Date.now(), source: 'marad', steps: A.orderSteps(steps, A.state, $f('#mrStrat').value) };
-  A.state.routes.push(r); S(); sel.clear(); A.closeSheet();
-  A.go('routes', { routeId: r.id }); A.toast(t('Route gemaakt met {n} taken', { n: steps.length }));
+  const sg = MR?.sg; const setK = document.querySelector('input[name=mrSet]:checked')?.value || 'due';
+  const tasks = sg ? pickSet(sg, setK) : M().tasks.filter((x) => sel.has(x.id));
+  if (!tasks.length) return A.toast(t('Geen taken'));
+  const o = { name: $f('#mrName').value.trim() || t('Onderhoud'), assignee: $f('#mrTo').value, strategy: $f('#mrStrat').value, fallback: $f('#mrLoc')?.value || '' };
+  const r = buildRoute(tasks, o);
+  if (sg && $f('#mrTpl')?.checked) {
+    const tp = { id: 'tp-' + A.rid(), key: sg.key, name: o.name, period: sg.period, set: setK, assignee: o.assignee, strategy: o.strategy, fallback: o.fallback, routeId: r.id, lastKey: periodKey(sg.period), lastRefresh: new Date().toISOString(), createdAt: new Date().toISOString() };
+    (A.state.templates ||= []).push(tp); r.templateId = tp.id; r.description = tplDesc(tp, r.steps.length);
+  }
+  A.state.routes.push(r); S(); if (!sg) sel.clear(); A.closeSheet(); MR = null;
+  A.go('routes', { routeId: r.id }); A.toast(t('Route gemaakt met {n} taken', { n: r.steps.length }));
+}
+const tplDesc = (tp, n) => t('🔁 Sjabloon ({p}) · ververst {d} · {n} taken aan de beurt', { p: periodLbl(tp.period), d: A.fmtDT(tp.lastRefresh), n });
+/** Terugkerende sjablonen: elke nieuwe week/maand de gekoppelde route vullen met de taken die dan aan de beurt zijn. */
+export function refreshTemplates(force = false, onlyId = null) {
+  const m = M(); if (!m?.tasks) return 0; let n = 0;
+  for (const tp of A.state.templates || []) {
+    if (onlyId && tp.id !== onlyId) continue;
+    const key = periodKey(tp.period);
+    const r0 = A.state.routes.find((x) => x.id === tp.routeId);
+    if (!force && tp.lastKey === key && r0) continue;
+    const sg = findSuggestion(m, tp.key); if (!sg) continue;
+    tp.lastKey = key; tp.lastRefresh = new Date().toISOString();
+    const r = buildRoute(pickSet(sg, tp.set), { name: tp.name, assignee: tp.assignee, strategy: tp.strategy, fallback: tp.fallback });
+    r.id = tp.routeId; r.templateId = tp.id; r.description = tplDesc(tp, r.steps.length);
+    if (r0) Object.assign(r0, { steps: r.steps, description: r.description, updatedAt: Date.now(), templateId: tp.id }); else A.state.routes.push(r);
+    n++;
+  }
+  if (n) S();
+  return n;
+}
+export function templateInfo(r) {
+  const tp = r?.templateId && (A.state.templates || []).find((x) => x.id === r.templateId); if (!tp) return '';
+  return `<section class="card tplcard"><p>🔁 <b>${t('Terugkerend sjabloon')}</b> · ${periodLbl(tp.period)}</p><p class="muted small">${t('Elke nieuwe {p} vult de app deze route opnieuw met de taken die dan aan de beurt zijn (na het openen van de app, als MARAD ontgrendeld is). Laatst ververst: {d}.', { p: tp.period === 'month' ? t('maand') : t('week'), d: A.fmtDT(tp.lastRefresh) })}</p><div class="row"><button class="btn small" data-act="mTplRefresh" data-id="${tp.id}" ${M()?.tasks ? '' : 'disabled'}>${t('↻ Nu verversen')}</button><button class="btn small ghost" data-act="mTplStop" data-id="${tp.id}">${t('Sjabloon stoppen')}</button></div></section>`;
+}
+// ---------- versturen naar een persoon (WhatsApp) ----------
+function sortContacts(ranks) {
+  const rk = new Set((ranks || []).map((r) => r.toLowerCase()));
+  return A.state.contacts.map((c) => ({ ...c, match: !!c.func && rk.has(c.func.toLowerCase()) })).sort((a, b) => b.match - a.match);
+}
+let SEND = null;
+function sendSheet(sg) {
+  const tasks = sg.due.length ? sg.due : sg.tasks;
+  const nUn = tasks.filter((x) => !A.loc(x.locId)).length;
+  const cs = sortContacts(sg.ranks);
+  SEND = { sg, tasks, id: 'r-' + A.rid() };
+  A.openSheet(`<h2>${t('📲 Stuur naar…')}</h2><p><b>${A.esc(sugName(sg))}</b> · ${t('{n} taken', { n: tasks.length })}</p>
+    ${nUn ? `<div class="warnbox">${t('{n} taken hebben nog geen locatie. Kies een locatie voor deze taken:', { n: nUn })}${A.locSelect(commonLoc(sg.tasks), 'id="sgLoc"', true)}</div>` : ''}
+    <div class="stack" id="sgList">${cs.map((c) => A.waNum(c.phone)
+      ? `<a class="btn wa ${c.match ? 'big' : ''}" href="#" target="_blank" rel="noopener" data-act="sgWa" data-cid="${c.id}">🟢 ${c.match ? '⭐ ' : ''}${A.esc(c.name)}${c.func ? ` <small>· ${A.esc(c.func)}</small>` : ''}</a>`
+      : `<button class="btn ghost small" data-act="editContact" data-id="${c.id}">${t('{name}: telefoon toevoegen', { name: A.esc(c.name) })}</button>`).join('')}</div>
+    ${cs.some((c) => c.match) ? `<p class="muted small">⭐ ${t('= functie past bij deze route ({f}).', { f: A.esc(sg.ranks.join(', ')) })}</p>` : `<p class="muted small">${t('Tip: geef personen een functie (Meer → Personen), dan staat de juiste persoon bovenaan.')}</p>`}
+    <div class="row"><button class="btn small" data-act="editContact">${t('+ Persoon')}</button><button class="btn small" data-act="sgOther">${t('📤 Andere manier (link/bestand)')}</button></div>
+    <p class="muted small" id="sgInfo"></p>`, { sgSend: true });
+  fillSendLinks();
+}
+function sendRoute(c) {
+  const r = buildRoute(SEND.tasks, { name: sugName(SEND.sg), assignee: c?.name || '', fallback: $f('#sgLoc')?.value || '' });
+  r.id = SEND.id; return r;
+}
+async function fillSendLinks() {
+  let len = 0;
+  for (const a of document.querySelectorAll('a[data-act=sgWa]')) {
+    const c = A.state.contacts.find((x) => x.id === a.dataset.cid); if (!c) continue;
+    const r = sendRoute(c);
+    const link = await A.buildShareLink(A.routePackage(A.state, r, c.name)); len = link.length;
+    const txt = t('Route "{route}" voor {name} – {n} ({ship}). Open de link om de route in de app te zetten:', { route: r.name, name: c.name, n: A.plural(r.steps.length, t('taak'), t('taken')), ship: A.state.shipName });
+    a.href = `https://wa.me/${A.waNum(c.phone)}?text=${encodeURIComponent(txt + '\n' + link)}`;
+  }
+  const i = $f('#sgInfo'); if (i && len) i.textContent = t('Link: {n} tekens', { n: len }) + (len > 6000 ? t(' – lang; deel liever als bestand') : '');
+}
+function saveSent(c, via) {
+  const r = sendRoute(c);
+  const i = A.state.routes.findIndex((x) => x.id === r.id);
+  r.sentLog = [...(i >= 0 ? A.state.routes[i].sentLog || [] : []), { to: c?.name || '?', at: new Date().toISOString(), via }];
+  if (i >= 0) A.state.routes[i] = r; else A.state.routes.push(r);
+  S(); return r;
 }
 const csvH = ['component_code', 'component', 'taak', 'uitgevoerd_op', 'door', 'opmerking', 'draaiuren', 'volgende_vervaldatum_app', 'ronde'];
 function exportDone() {
@@ -364,7 +528,7 @@ export const actions = {
     await ensureMaint();
     const r = mergeMarad(M() || null, data, { autoLoc, file: data.file || 'marad-export' });
     A.state.maint = r.maint; A.state.maint.source = 'encrypted'; loaded = true;
-    S(); A.closeSheet(); A.go('onderhoud');
+    S(); afterLoad(false); A.closeSheet(); A.go('onderhoud');
     A.toast(t('Ontgrendeld – {n} taken staan nu op dit toestel', { n: r.maint.tasks.length }), 4000);
   },
   mLock: async () => {
@@ -375,13 +539,22 @@ export const actions = {
     A.save(); A.render(); A.toast(t('Vergrendeld – lokale MARAD-kopie gewist'));
   },
   mView: (a) => { F.view = a.dataset.v; A.render(); },
+  mRank: (a) => { const rs = rankSel(); const v = a.dataset.v; if (rs.has(v)) rs.delete(v); else rs.add(v); A.state.settings.rankSel = [...rs]; A.save(); sel.clear(); A.render(); },
+  mRankAll: () => { A.state.settings.rankSel = []; A.save(); A.render(); },
+  sgRoute: (a) => { const sg = sugBy(a.dataset.k); if (sg) makeRouteSheet({ sg, tpl: !!a.dataset.tpl }); },
+  sgShow: (a) => { const sg = sugBy(a.dataset.k); if (sg) sugTasksSheet(sg); },
+  sgSend: (a) => { const sg = sugBy(a.dataset.k); if (sg) sendSheet(sg); },
+  sgWa: (a) => { const c = A.state.contacts.find((x) => x.id === a.dataset.cid); saveSent(c, 'whatsapp'); A.toast(t('Route opgeslagen en via WhatsApp verstuurd naar {name}', { name: c?.name || '' }), 3500); setTimeout(() => { A.closeSheet(); A.render(); }, 300); return 'default'; },
+  sgOther: () => { const r = saveSent(null, 'menu'); r.sentLog = []; S(); A.closeSheet(); A.openShare(r); },
+  mTplRefresh: (a) => { const n = refreshTemplates(true, a.dataset.id); A.render(); A.toast(n ? t('Route ververst') : t('Niet gelukt – is MARAD ontgrendeld?')); },
+  mTplStop: (a) => { if (!confirm(t('Sjabloon stoppen? De route zelf blijft bestaan.'))) return; const tp = (A.state.templates || []).find((x) => x.id === a.dataset.id); A.state.templates = (A.state.templates || []).filter((x) => x.id !== a.dataset.id); const r = tp && A.state.routes.find((x) => x.id === tp.routeId); if (r) delete r.templateId; S(); A.render(); },
   mSt: (a) => { F.st = a.dataset.v; A.render(); },
   mQuick: (a) => { F.st = a.dataset.v; F.view = 'list'; A.render(); },
   mImport: () => { preview = null; importSheet(); },
   mPickFile: () => $f('#fileMarad').click(),
   mDoImport: () => {
     const r = mergeMarad(M() || null, preview.parsed, { autoLoc, file: preview.file });
-    A.state.maint = r.maint; loaded = true; S(); preview = null; A.closeSheet();
+    A.state.maint = r.maint; loaded = true; S(); afterLoad(false); preview = null; A.closeSheet();
     A.toast(t('MARAD geïmporteerd: {a} nieuw, {u} bijgewerkt, {s} ongewijzigd', { a: r.added, u: r.updated, s: r.unchanged }), 4000);
     A.go('onderhoud');
   },
@@ -389,8 +562,8 @@ export const actions = {
   mToggleSel: (a) => { const id = a.dataset.id; if (sel.has(id)) sel.delete(id); else sel.add(id); A.closeSheet(); refreshList(); },
   mSelClear: () => { sel.clear(); refreshList(); },
   mSelVisible: () => { for (const x of filtered()) sel.add(x.id); refreshList(); },
-  mSelDue: () => { for (const x of M().tasks) { const st = status(x); if (st === 'overdue' || st === 'week') sel.add(x.id); } refreshList(); },
-  mMakeRoute: makeRouteSheet,
+  mSelDue: () => { for (const x of M().tasks) { const st = status(x); if ((st === 'overdue' || st === 'week') && rankOk(x)) sel.add(x.id); } refreshList(); },
+  mMakeRoute: () => makeRouteSheet(null),
   mCreateRoute: createRoute,
   mSignoff: (a) => {
     const x = M().tasks.find((y) => y.id === a.dataset.id);

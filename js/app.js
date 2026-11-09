@@ -5,7 +5,7 @@ import { initMaint } from './maint.js';
 import { shipSVG, svgPointToLoc, VIEWS } from './shipmap.js';
 import { t, tx, setTx, getLang, setLang, LANGS, LOCALES } from './i18n.js';
 
-const APP_VERSION = '1.4.0';
+const APP_VERSION = '1.5.0';
 const OB = self.OutboxCore;
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -18,7 +18,11 @@ const plural = (n, a, b) => `${n} ${n === 1 ? a : b}`;
 const isCrew = () => state.settings.mode === 'bemanning';
 const CREW_TABS = ['routes', 'meer'];
 
-let view = { tab: 'routes', routeId: null, runId: null, mapMode: 'side', mapRoute: '', placing: null };
+let view = { tab: 'routes', routeId: null, runId: null, mapMode: 'side', mapRoute: '', placing: null, hist: 'runs' };
+// iPhone/iPad (ook iPadOS die zich als Mac voordoet) en of de app vanaf het beginscherm draait
+const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const isStandalone = () => matchMedia('(display-mode: standalone), (display-mode: fullscreen)').matches || navigator.standalone === true;
+const iosOtherBrowser = () => /CriOS|FxiOS|EdgiOS|OPiOS/i.test(navigator.userAgent);
 let draft = null;        // taak die in de editor open staat
 let sheetCtx = null;     // context van het open paneel
 let deferredInstall = null;
@@ -93,6 +97,9 @@ function render() {
   $$('#nav button').forEach((b) => { b.classList.toggle('on', b.dataset.tab === view.tab); b.hidden = isCrew() && !CREW_TABS.includes(b.dataset.tab); });
   const NAVL = { routes: isCrew() ? t('Mijn routes') : t('Routes'), onderhoud: t('Onderhoud'), kaart: t('Kaart'), locaties: t('Locaties'), historie: t('Historie'), meer: t('Meer') };
   $$('#nav button').forEach((b) => { b.lastChild.textContent = NAVL[b.dataset.tab]; });
+  const nb = $('#nav button[data-tab=historie]'); const un = isCrew() ? 0 : unseenCount();
+  let bd = nb.querySelector('.nbadge'); if (!bd) { bd = document.createElement('b'); bd.className = 'nbadge'; nb.prepend(bd); }
+  bd.textContent = un > 99 ? '99+' : un; bd.hidden = !un; nb.setAttribute('aria-label', NAVL.historie + (un ? ' – ' + t('{n} nieuwe aftekeningen', { n: un }) : ''));
   const fn = {
     routes: isCrew() ? viewCrewRoutes : view.routeId ? viewRoute : viewRoutes,
     onderhoud: MT.view,
@@ -107,10 +114,21 @@ function header(title, back = false, extra = '') {
 }
 function obxBadge() { return `<button class="obx ${outboxErr ? 'err' : ''}" data-act="openOutbox" ${outboxPending ? '' : 'hidden'} aria-label="${t('Outbox')}">📤 ${outboxPending}</button>`; }
 function installBanner() {
-  const standalone = matchMedia('(display-mode: standalone), (display-mode: fullscreen)').matches || navigator.standalone;
-  if (standalone || state.settings.hideInstall) return '';
-  const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
-  return `<div class="banner"><b>${t('Zet de app op je beginscherm')}</b><p>${deferredInstall ? t('Dan start hij schermvullend en werkt hij offline.') : ios ? t('Tik in Safari op <b>Deel</b> ⬆️ en dan <b>Zet op beginscherm</b>.') : t('Open het browsermenu ⋮ en kies <b>App installeren</b> / <b>Toevoegen aan startscherm</b>.')}</p><div class="row">${deferredInstall ? `<button class="btn primary" data-act="install">${t('Installeren')}</button>` : ''}<button class="btn ghost" data-act="hideInstall">${t('Verbergen')}</button></div></div>`;
+  if (isStandalone() || state.settings.hideInstall) return '';
+  if (isIOS()) return `<div class="banner ios"><b>${t('📲 Zet de app op je beginscherm (iPhone)')}</b><p>${iosOtherBrowser() ? t('Open deze pagina in <b>Safari</b>, tik op <b>Deel</b> ⬆️ en kies <b>Zet op beginscherm</b>.') : t('Tik in Safari op <b>Deel</b> ⬆️ en dan <b>Zet op beginscherm</b>.')}</p><div class="row"><button class="btn primary" data-act="iosInstall">${t('Stap voor stap')}</button><button class="btn ghost" data-act="hideInstall">${t('Verbergen')}</button></div></div>`;
+  return `<div class="banner"><b>${t('Zet de app op je beginscherm')}</b><p>${deferredInstall ? t('Dan start hij schermvullend en werkt hij offline.') : t('Open het browsermenu ⋮ en kies <b>App installeren</b> / <b>Toevoegen aan startscherm</b>.')}</p><div class="row">${deferredInstall ? `<button class="btn primary" data-act="install">${t('Installeren')}</button>` : ''}<button class="btn ghost" data-act="hideInstall">${t('Verbergen')}</button></div></div>`;
+}
+function iosInstallSheet() {
+  openSheet(`<h2>${t('📲 Installeren op iPhone')}</h2>
+    ${iosOtherBrowser() ? `<p class="warnbox">${t('Je gebruikt een andere browser dan Safari. Dat kan ook (iOS 16.4+), maar Safari werkt het best: kopieer het adres en open het in Safari.')}</p>` : ''}
+    <ol class="iossteps">
+      <li><span class="ico">⬆️</span><div><b>${t('Tik op Deel')}</b><small>${t('Het vierkantje met pijl omhoog, onderaan in Safari (op iPad bovenaan).')}</small></div></li>
+      <li><span class="ico">➕</span><div><b>${t('Kies "Zet op beginscherm"')}</b><small>${t('Scroll in het menu omlaag als je hem niet direct ziet.')}</small></div></li>
+      <li><span class="ico">✅</span><div><b>${t('Tik op "Voeg toe"')}</b><small>${t('Rechtsboven. Het icoon "Schip Route" staat nu op je beginscherm.')}</small></div></li>
+      <li><span class="ico">🚢</span><div><b>${t('Open de app vanaf het beginscherm')}</b><small>${t('Dan start hij schermvullend en werkt hij offline. Gebruik vanaf nu altijd dit icoon.')}</small></div></li>
+    </ol>
+    <p class="infobox">${t('ℹ️ Belangrijk op iPhone: de app op het beginscherm heeft een eigen opslag, los van Safari. Een route-link uit WhatsApp opent in Safari: kopieer hem daar met "📋 Kopieer route" en plak hem in de app met "📋 Route plakken".')}</p>
+    <button class="btn primary big" data-act="closeSheet">${t('Begrepen')}</button>`, { iosInstall: true });
 }
 
 function viewRoutes() {
@@ -118,14 +136,16 @@ function viewRoutes() {
   let h = header(t('Routes')) + `<p class="shipsub">🚢 ${esc(state.shipName)}</p>`;
   if (ar) h += `<div class="card resume"><b>${t('Ronde bezig: {name}', { name: esc(tx(ar.route, 'name')) })}</b><p>${t('Stap {a} van {b} · gestart {c}', { a: Math.min(ar.idx + 1, ar.route.steps.length), b: ar.route.steps.length, c: fmtDT(ar.startedAt) })}</p><div class="row"><button class="btn ok big" data-act="resumeRun">${t('▶ Doorgaan')}</button><button class="btn ghost" data-act="abortRun">${t('Afbreken')}</button></div></div>`;
   h += installBanner();
+  const ns = state.maint ? MT.sugCount() : 0;
+  if (ns) h += `<button class="card tap sugbanner" data-act="goSug">💡 <b>${t('{n} voorgestelde routes', { n: ns })}</b><small>${t('op basis van functie en interval (Onderhoud → Voorstel)')}</small></button>`;
   h += `<div class="list">`;
   if (!state.routes.length) h += `<p class="empty">${t('Nog geen routes. Maak er een met de knop hieronder.')}</p>`;
   for (const r of state.routes) {
     const nLoc = new Set(r.steps.map((s) => s.locationId)).size;
-    h += `<article class="card route"><div class="tap" data-act="openRoute" data-id="${r.id}"><h2>${esc(tx(r, 'name'))}</h2><p>${plural(r.steps.length, t('taak'), t('taken'))} · ${plural(nLoc, t('locatie'), t('locaties'))}${r.assignee ? ` · ${t('voor {name}', { name: `<b>${esc(r.assignee)}</b>` })}` : ''}</p>${r.description ? `<p class="muted">${esc(tx(r, 'description'))}</p>` : ''}</div>
+    h += `<article class="card route"><div class="tap" data-act="openRoute" data-id="${r.id}"><h2>${esc(tx(r, 'name'))}</h2><p>${plural(r.steps.length, t('taak'), t('taken'))} · ${plural(nLoc, t('locatie'), t('locaties'))}${r.assignee ? ` · ${t('voor {name}', { name: `<b>${esc(r.assignee)}</b>` })}` : ''}${r.templateId ? ' · <span class="tag">🔁</span>' : ''}</p>${r.description ? `<p class="muted">${esc(tx(r, 'description'))}</p>` : ''}</div>
       <div class="row"><button class="btn ok" data-act="startRun" data-id="${r.id}" ${r.steps.length ? '' : 'disabled'}>${t('▶ Start ronde')}</button><button class="btn" data-act="shareRoute" data-id="${r.id}">${t('📤 Versturen')}</button><button class="btn" data-act="openRoute" data-id="${r.id}">✎</button></div></article>`;
   }
-  h += `</div><div class="stack"><button class="btn primary big" data-act="newRoute">${t('+ Nieuwe route')}</button><div class="row"><button class="btn" data-act="newObs">${t('👁 Extra observatie')}</button><button class="btn" data-act="openOutbox">${t('📤 Outbox')}</button></div><button class="btn ghost" data-act="importFile">${t('📥 Route-bestand importeren')}</button></div>`;
+  h += `</div><div class="stack"><button class="btn primary big" data-act="newRoute">${t('+ Nieuwe route')}</button><div class="row"><button class="btn" data-act="newObs">${t('👁 Extra observatie')}</button><button class="btn" data-act="openOutbox">${t('📤 Outbox')}</button></div><div class="row"><button class="btn ghost" data-act="importFile">${t('📥 Route-bestand importeren')}</button><button class="btn ghost" data-act="pasteRoute">${t('📋 Route plakken')}</button></div></div>`;
   return h;
 }
 
@@ -137,6 +157,7 @@ function viewRoute() {
   h += `<div class="form"><label>${t('Naam')}<input data-rf="name" value="${esc(tx(r, 'name'))}" placeholder="${t('Bijv. Dagelijkse ronde')}"></label>
     <label>${t('Omschrijving')}<textarea data-rf="description" rows="2">${esc(r.description || '')}</textarea></label>
     <label>${t('Bestemd voor')}<select data-rf="assignee"><option value="">${t('— niemand / mezelf —')}</option>${state.contacts.map((c) => `<option ${c.name === r.assignee ? 'selected' : ''}>${esc(tx(c, 'name'))}</option>`).join('')}</select></label></div>`;
+  h += MT.templateInfo(r);
   h += waSection(r);
   h += `<div class="mapcard">${viewToggle('routeMapView', view.mapMode)}<div class="mapwrap">${shipSVG({ view: view.mapMode, locations: state.locations, numbers: nums, ship: state.shipName })}</div><p class="hint">${t('Nummers = volgorde van de taken.')}</p></div>`;
   h += `<h3 class="sec">${t('Taken (')}${r.steps.length}) <small>${t('sleep ☰ of gebruik ▲▼')}</small></h3><ol class="steps" id="steps">`;
@@ -210,8 +231,13 @@ function runStats(run) {
   for (const x of run.results) { c[x.status]++; if (x.outOfRange?.length) c.oor++; }
   return c;
 }
+function histSeg() {
+  const un = unseenCount();
+  return `<div class="seg hseg"><button class="${view.hist !== 'others' ? 'on' : ''}" data-act="histMode" data-v="runs">${t('📋 Rondes')}</button><button class="${view.hist === 'others' ? 'on' : ''}" data-act="histMode" data-v="others">${t('👥 Door anderen')}${un ? ` <b class="sbadge">${un}</b>` : ''}</button></div>`;
+}
 function viewHistory() {
-  let h = header(t('Historie'));
+  let h = header(t('Historie')) + histSeg();
+  if (view.hist === 'others') return h + viewOthers();
   h += `<div class="stack"><button class="btn primary" data-act="reportImport">${t('📨 Rapport importeren (link of bestand)')}</button></div>`;
   if (!state.runs.length) return h + `<p class="empty">${t('Nog geen afgeronde rondes. Start een route via het tabblad Routes.')}</p>`;
   h += `<div class="row"><button class="btn" data-act="exportAll" data-f="csv">${t('⬇ Alles CSV')}</button><button class="btn" data-act="exportAll" data-f="json">${t('⬇ Alles JSON')}</button></div><div class="list">`;
@@ -220,6 +246,71 @@ function viewHistory() {
     h += `<article class="card tap" data-act="openRun" data-id="${run.id}"><h2>${esc(run.routeName)}</h2>${run.received ? `<p class="tag ok">📨 ${t('rapport van {name}', { name: esc(run.by || '?') })}</p>` : ''}${run.maradDone ? ` <span class="tag">🔧 ${t('{n} MARAD afgemeld', { n: run.maradDone })}</span>` : ''}<p>${fmtDT(run.startedAt)} → ${fmtDT(run.finishedAt)}</p><p><span class="tag ok">✔ ${c.done}</span> <span class="tag">↷ ${c.skipped}</span> <span class="tag warn">⚠ ${c.problem}</span>${c.oor ? ` <span class="tag warn">${t('buiten bereik:')} ${c.oor}</span>` : ''}</p></article>`;
   }
   return h + `</div>`;
+}
+
+// ---------- afgetekend door anderen (ontvangen rapporten) ----------
+const OF = { person: '', func: '', period: '30' };
+const received = () => state.runs.filter((r) => r.received);
+function unseenCount() { return received().filter((r) => !r.received.seenAt).reduce((n, r) => n + r.results.length, 0); }
+const personFunc = (name) => state.contacts.find((c) => c.name.trim().toLowerCase() === String(name || '').trim().toLowerCase())?.func || '';
+function runFuncs(run) {
+  const f = new Set(); const pf = personFunc(run.by); if (pf) f.add(pf);
+  if (state.maint?.tasks) for (const x of run.results) { const tk = x.marad?.id && state.maint.tasks.find((y) => y.id === x.marad.id); if (tk) tk.rank.forEach((r) => f.add(r)); }
+  return f;
+}
+const VIA = () => ({ link: t('via link'), ntfy: t('via meldingskanaal'), file: t('via bestand'), paste: t('geplakt') });
+function resultFlags(x) {
+  const fl = [];
+  if (x.status === 'problem') fl.push(`<span class="tag warn">⚠ ${t('probleem')}</span>`);
+  if (x.status === 'skipped') fl.push(`<span class="tag">↷ ${t('overgeslagen')}</span>`);
+  if (x.outOfRange?.length) fl.push(`<span class="tag warn">❗ ${t('buiten bereik')}</span>`);
+  if ((x.fields || []).some((f) => f.role === 'mDone' && x.values?.[f.id] === false)) fl.push(`<span class="tag warn">✖ ${t('niet uitgevoerd')}</span>`);
+  return fl.join(' ');
+}
+function othersResult(run, x) {
+  const vals = (x.fields || []).filter((f) => !(f.role === 'mDone' && x.values?.[f.id] === true) && !(f.role === 'mRem' && !x.values?.[f.id])).map((f) => `<li class="${x.outOfRange?.includes(f.id) ? 'oor' : ''}">${esc(tx(f, 'label'))}: <b>${esc(fmtVal(f, x.values?.[f.id]))}</b></li>`).join('');
+  const so = x.marad?.id && state.maint?.signoffs?.find((s) => s.taskId === x.marad.id && s.runId === run.id);
+  const md = x.marad ? `<small class="mtag">🔧 MARAD${so ? ' · ✔ ' + t('afgemeld') : state.maint ? '' : ' · 🔒 ' + t('wordt afgemeld na ontgrendelen')}</small>` : '';
+  return `<li class="st-${x.status}"><b>${x.status === 'done' ? '✔' : x.status === 'problem' ? '⚠' : '↷'} ${esc(tx(x, 'title'))}</b> <small>📍 ${esc(x.locName)} · ${new Date(x.at).toLocaleTimeString(LOCALES[getLang()], { timeStyle: 'short' })}</small> ${resultFlags(x)}${md}${vals ? `<ul>${vals}</ul>` : ''}${x.note ? `<p class="note">📝 ${esc(x.note)}</p>` : ''}</li>`;
+}
+function viewOthers() {
+  let h = `<section class="card pastecard"><h3>${t('📨 Rapport binnenhalen')}</h3><p class="muted small">${t('Open de rapport-link uit WhatsApp of de melding: dan wordt hij vanzelf geïmporteerd. Of plak hem hier:')}</p>
+    <textarea id="repPaste" rows="2" placeholder="${t('Plak hier de rapport-link of -tekst')}"></textarea>
+    <div class="row"><button class="btn small" data-act="repClip">${t('📋 Plakken')}</button><button class="btn small" data-act="ntfyPoll">${t('🔄 Ophalen uit meldingskanaal')}</button><button class="btn small" data-act="importFile">${t('📄 Bestand')}</button></div>
+    <p class="muted small" id="pollInfo">${state.settings.ntfyPolledAt ? t('Laatst opgehaald: {d}', { d: fmtDT(state.settings.ntfyPolledAt) }) : ''}</p></section>`;
+  const all = received();
+  if (!all.length) return h + `<p class="empty">${t('Nog geen rapporten van anderen. Rapporten van de bemanning (via link, meldingskanaal of bestand) verschijnen hier.')}</p>`;
+  const persons = [...new Set(all.map((r) => r.by || '?'))].sort();
+  const funcs = [...new Set(all.flatMap((r) => [...runFuncs(r)]))].sort();
+  const since = OF.period === 'all' ? '' : new Date(Date.now() - +OF.period * 864e5).toISOString();
+  const xs = all.filter((r) => (!OF.person || (r.by || '?') === OF.person) && (!OF.func || runFuncs(r).has(OF.func)) && (!since || (r.finishedAt || '') >= since));
+  const pb = (k, l) => `<button class="${OF.period === k ? 'on' : ''}" data-act="ofPeriod" data-v="${k}">${l}</button>`;
+  h += `<div class="mfilters"><select id="ofPerson"><option value="">${t('Alle personen')}</option>${persons.map((p) => `<option ${p === OF.person ? 'selected' : ''}>${esc(p)}</option>`).join('')}</select><select id="ofFunc"><option value="">${t('Alle functies')}</option>${funcs.map((f) => `<option ${f === OF.func ? 'selected' : ''}>${esc(f)}</option>`).join('')}</select></div>`;
+  h += `<div class="seg">${pb('7', t('7 dagen'))}${pb('30', t('30 dagen'))}${pb('all', t('Alles'))}</div>`;
+  const nRes = xs.reduce((n, r) => n + r.results.length, 0), nNew = xs.filter((r) => !r.received.seenAt).reduce((n, r) => n + r.results.length, 0);
+  const nProb = xs.reduce((n, r) => n + r.results.filter((x) => resultFlags(x).includes('warn')).length, 0);
+  h += `<p class="ofsum">${t('{n} aftekeningen', { n: nRes })}${nNew ? ` · <b class="newc">${t('{n} nieuw', { n: nNew })}</b>` : ''}${nProb ? ` · <span class="cr">⚠ ${t('{n} met probleem', { n: nProb })}</span>` : ''}</p>`;
+  h += `<div class="row">${nNew ? `<button class="btn small" data-act="seenAll">${t('✔ Alles gezien')}</button>` : ''}<button class="btn small" data-act="goMaradDone">${t('⬇ Afgemeld voor MARAD')}</button></div>`;
+  const byP = new Map();
+  for (const r of [...xs].sort((a, b) => (b.finishedAt || '').localeCompare(a.finishedAt || ''))) { const p = r.by || '?'; if (!byP.has(p)) byP.set(p, []); byP.get(p).push(r); }
+  for (const [p, runs] of byP) {
+    const pf = personFunc(p);
+    h += `<h3 class="sec person">👤 ${esc(p)}${pf ? ` <small>· ${esc(pf)}</small>` : ''} <small>(${runs.reduce((n, r) => n + r.results.length, 0)})</small></h3>`;
+    let lastD = '';
+    for (const r of runs) {
+      const d = new Date(r.finishedAt || r.received.at).toLocaleDateString(LOCALES[getLang()], { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+      if (d !== lastD) { h += `<h4 class="odate">📅 ${esc(d)}</h4>`; lastD = d; }
+      const c = runStats(r); const photos = (r.messages || []).reduce((n, m) => n + (m.photos || 0), 0);
+      h += `<article class="card others ${r.received.seenAt ? '' : 'new'}"><div class="ohead"><b>${esc(r.routeName)}</b>${r.received.seenAt ? '' : ` <span class="tag warn">${t('NIEUW')}</span>`}</div>
+        <p class="muted small">${fmtDT(r.startedAt)} → ${fmtDT(r.finishedAt)} · ${VIA()[r.received.via] || t('via link')}</p>
+        <p><span class="tag ok">✔ ${c.done}</span> <span class="tag">↷ ${c.skipped}</span> <span class="tag warn">⚠ ${c.problem}</span>${c.oor ? ` <span class="tag warn">❗ ${c.oor}</span>` : ''}${photos ? ` <span class="tag">📷 ${photos}</span>` : ''}${r.maradDone ? ` <span class="tag">🔧 ${r.maradDone}</span>` : ''}</p>
+        <ul class="oresults">${r.results.map((x) => othersResult(r, x)).join('')}</ul>
+        ${(r.messages || []).length ? `<ul class="omsgs">${r.messages.map((m) => `<li>${m.kind === 'vraag' ? '❓' : m.urgent ? '🚨' : '👁'} ${esc(m.text || '')}${m.locName ? ` <small>(${esc(m.locName)})</small>` : ''}${m.photos ? ` <small>📷 ${m.photos} ${t('(foto via meldingskanaal)')}</small>` : ''}</li>`).join('')}</ul>` : ''}
+        <div class="row">${r.received.seenAt ? `<small class="muted">✔ ${t('gezien {d}', { d: fmtDT(r.received.seenAt) })}</small>` : `<button class="btn small ok" data-act="seenRun" data-id="${r.id}">${t('✔ Markeer als gezien')}</button>`}<button class="btn small ghost" data-act="openRunH" data-id="${r.id}">${t('Details')}</button></div></article>`;
+    }
+  }
+  if (!xs.length) h += `<p class="empty">${t('Niets in deze periode / met dit filter.')}</p>`;
+  return h;
 }
 function optLabel(f, o, k) { const L = getLang(); return (L !== 'nl' && f.tr?.[L]?.options?.[k]) || o; }
 function fmtVal(f, v) {
@@ -250,14 +341,15 @@ function viewMore() {
   h += `<section class="card"><h2>${t('🌐 Taal · Language · Bahasa')}</h2><div class="seg langseg">${Object.entries(LANGS).map(([k, v]) => `<button class="${k === getLang() ? 'on' : ''}" data-act="setLang" data-v="${k}">${v.flag} ${k.toUpperCase()}</button>`).join('')}</div><p class="muted small">${t('Per toestel. De meldingen naar de ontvanger blijven Nederlands; getypte tekst wordt niet vertaald.')}</p></section>`;
   h += modeCard();
   h += `<section class="card"><h2>${t('🔧 MARAD-onderhoud')}</h2><p class="muted">${t('Worklist-export uit MARAD inlezen (.xlsx/.csv). Bijwerken zonder dubbelingen.')}</p><div class="row"><button class="btn" data-act="mImport">${t('📥 MARAD-import')}</button><button class="btn" data-act="reportImport">${t('📨 Rapport importeren')}</button></div>${state.maint ? `<button class="btn ghost small" data-act="mLock">${t('🔒 Vergrendel opnieuw (lokale MARAD-kopie wissen)')}</button>` : ''}</section>`;
-  h += `<section class="card"><h2>${t('Personen')}</h2><p class="muted">${t('Naar wie je routes kunt sturen.')}</p><ul class="locs">${state.contacts.map((c) => `<li data-act="editContact" data-id="${c.id}"><span>👤 ${esc(tx(c, 'name'))}</span><small>${esc(c.phone || c.email || '')}</small></li>`).join('')}</ul><button class="btn small" data-act="editContact">${t('+ Persoon toevoegen')}</button></section>`;
+  h += `<section class="card"><h2>${t('Personen')}</h2><p class="muted">${t('Naar wie je routes kunt sturen.')}</p><ul class="locs">${state.contacts.map((c) => `<li data-act="editContact" data-id="${c.id}"><span>👤 ${esc(tx(c, 'name'))}${c.func ? ` <small class="func">· ${esc(c.func)}</small>` : ''}</span><small>${esc(c.phone || c.email || '')}</small></li>`).join('')}</ul><button class="btn small" data-act="editContact">${t('+ Persoon toevoegen')}</button></section>`;
   const tog = (k, label) => `<label class="switch"><input type="checkbox" data-set="${k}" ${st[k] ? 'checked' : ''}><span>${label}</span></label>`;
   h += `<section class="card"><h2>${t('Instellingen')}</h2>
     <label>${t('Schip')}<input data-ship value="${esc(state.shipName)}"></label>
     <label>${t('Mijn naam (in rapporten en meldingen)')}<input data-set-text="userName" value="${esc(st.userName || '')}" placeholder="${t('Bijv. Hessel')}"></label>
+    <label>${t('Mijn functie (filter in Onderhoud)')}<select data-set-sel="myRank">${[...new Set([st.myRank || 'Engineer', ...MT.rankNames()])].map((r) => `<option ${r === (st.myRank || 'Engineer') ? 'selected' : ''}>${esc(r)}</option>`).join('')}</select></label>
     <label>${t('Mijn telefoon (WhatsApp) – bemanning stuurt rapporten hierheen')}<input type="tel" data-set-text="userPhone" value="${esc(st.userPhone || '')}" placeholder="+31 6…"></label>
     <label>${t('Thema')}<select data-set-sel="theme"><option value="auto" ${st.theme === 'auto' ? 'selected' : ''}>${t('Automatisch')}</option><option value="light" ${st.theme === 'light' ? 'selected' : ''}>${t('Licht (hoog contrast)')}</option><option value="dark" ${st.theme === 'dark' ? 'selected' : ''}>${t('Donker')}</option></select></label>
-    ${tog('bigText', t('Extra grote tekst'))}${tog('vibrate', t('Trillen bij volgende stap'))}${tog('speak', t('Instructie uitspreken (spraak)'))}${tog('wakeLock', t('Scherm aan houden tijdens ronde'))}${tog('fullscreen', t('Ronde schermvullend starten'))}${tog('resumeOnStart', t('Lopende ronde direct openen bij starten app'))}</section>`;
+    ${tog('bigText', t('Extra grote tekst'))}${tog('vibrate', t('Trillen bij volgende stap'))}${tog('speak', t('Instructie uitspreken (spraak)'))}${tog('wakeLock', t('Scherm aan houden tijdens ronde'))}${fsToggle(tog)}${tog('resumeOnStart', t('Lopende ronde direct openen bij starten app'))}</section>`;
   h += `<section class="card" id="ntfyCard"><h2>${t('🔔 Meldingen (vragen & observaties)')}</h2>
     <p class="muted">${t('Vragen en observaties van de bemanning gaan via')} <b>${t('ntfy')}</b> ${t('naar je telefoon, met piepje. Installeer de gratis app')} <b>${t('ntfy')}</b> ${t('(Android/iPhone), tik op')} <b>+</b> ${t('en abonneer op dit kanaal. Zonder internet wachten berichten in de outbox en gaan ze vanzelf weg zodra er verbinding is.')}</p>
     <label>${t('Melding naar (ntfy-kanaal)')}<input data-ntfy="ntfyTopic" value="${esc(st.ntfyTopic || '')}" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
@@ -270,6 +362,7 @@ function viewMore() {
   return h;
 }
 
+const fsToggle = (tog) => (isIOS() ? `<p class="muted small">${t('📱 iPhone: schermvullend werkt door de app vanaf het beginscherm te starten (geen aparte schakelaar nodig).')}</p>` : tog('fullscreen', t('Ronde schermvullend starten')));
 function afterRender() {
   const list = $('#steps');
   if (list) bindDrag(list, (ids) => {
@@ -278,6 +371,7 @@ function afterRender() {
     touch(r); render();
   });
   fillWaLinks();
+  const oc = $('.rchips .chip.on'); if (oc && oc.dataset.v) oc.parentElement.scrollLeft = oc.offsetLeft - 60;
   const img = $('#planImg');
   if (img) getPlan($('#plan').dataset.deck).then((src) => { if (src) img.src = src; });
 }
@@ -443,11 +537,11 @@ function importPackage(pkg, asCopy) {
   save();
   return r;
 }
-async function handleImportText(text) {
+async function handleImportText(text, via = 'file') {
   let obj;
   try { obj = JSON.parse(text); } catch { return toast(t('Geen geldig bestand')); }
   if (obj.kind === 'route' && obj.route) return importSheet(obj);
-  if (obj.kind === 'report' && obj.results) return reportSheet(obj);
+  if (obj.kind === 'report' && obj.results) return autoImportReport(obj, via);
   if (obj.kind === 'backup' && obj.data) {
     if (!confirm(t('Back-up terugzetten? Dit vervangt ALLE gegevens op dit toestel.'))) return;
     const imgs = obj.data.planImages || {}; delete obj.data.planImages;
@@ -503,8 +597,13 @@ async function enterRunChrome() {
   if (state.settings.fullscreen !== false && !document.fullscreenElement && document.documentElement.requestFullscreen) {
     try { await document.documentElement.requestFullscreen({ navigationUI: 'hide' }); } catch { /* niet toegestaan */ }
   }
-  if (state.settings.wakeLock && 'wakeLock' in navigator) {
-    try { wakeLock = await navigator.wakeLock.request('screen'); } catch { /* niet beschikbaar */ }
+  if (state.settings.wakeLock) {
+    let ok = false;
+    if ('wakeLock' in navigator) { try { wakeLock = await navigator.wakeLock.request('screen'); ok = true; } catch { /* niet beschikbaar */ } }
+    if (!ok && !sessionStorage.getItem('wlWarn')) {
+      sessionStorage.setItem('wlWarn', '1');
+      toast(isIOS() ? t('Scherm aan houden lukt hier niet. iPhone: Instellingen → Beeldscherm en helderheid → Automatisch slot → tijdelijk langer zetten.') : t('Scherm aan houden wordt op dit toestel niet ondersteund.'), 6000);
+    }
   }
 }
 function exitRunChrome() {
@@ -729,13 +828,13 @@ const actions = {
   // personen
   editContact: (a) => {
     const c = state.contacts.find((x) => x.id === a.dataset.id) || { id: '', name: '', phone: '', email: '' };
-    openSheet(`<h2>${c.id ? t('Persoon bewerken') : t('Nieuwe persoon')}</h2><label>${t('Naam')}<input id="cName" value="${esc(tx(c, 'name'))}"></label><label>${t('Telefoon (WhatsApp)')}<input id="cPhone" type="tel" value="${esc(c.phone)}" placeholder="+31 6…"></label><label>${t('E-mail')}<input id="cEmail" type="email" value="${esc(c.email)}"></label><div class="row sticky">${c.id ? `<button class="btn danger" data-act="delContact">${t('Verwijderen')}</button>` : ''}<button class="btn ghost" data-act="closeSheet">${t('Annuleren')}</button><button class="btn primary" data-act="saveContact">${t('Opslaan')}</button></div>`, { id: c.id });
+    openSheet(`<h2>${c.id ? t('Persoon bewerken') : t('Nieuwe persoon')}</h2><label>${t('Naam')}<input id="cName" value="${esc(tx(c, 'name'))}"></label><label>${t('Telefoon (WhatsApp)')}<input id="cPhone" type="tel" value="${esc(c.phone)}" placeholder="+31 6…"></label><label>${t('E-mail')}<input id="cEmail" type="email" value="${esc(c.email)}"></label><label>${t('Functie (optioneel)')}<input id="cFunc" list="rankList" value="${esc(c.func || '')}" placeholder="${t('Bijv. 2nd Officer')}" autocapitalize="words"><datalist id="rankList">${MT.rankNames().map((r) => `<option value="${esc(r)}">`).join('')}</datalist></label><p class="muted small">${t('Met een functie stelt de app deze persoon voor bij routes voor die functie.')}</p><div class="row sticky">${c.id ? `<button class="btn danger" data-act="delContact">${t('Verwijderen')}</button>` : ''}<button class="btn ghost" data-act="closeSheet">${t('Annuleren')}</button><button class="btn primary" data-act="saveContact">${t('Opslaan')}</button></div>`, { id: c.id });
   },
   saveContact: () => {
     const name = $('#cName').value.trim(); if (!name) return toast(t('Naam is verplicht'));
     let c = state.contacts.find((x) => x.id === sheetCtx.id);
     if (!c) { c = { id: 'c-' + rid() }; state.contacts.push(c); }
-    Object.assign(c, { name, phone: $('#cPhone').value.trim(), email: $('#cEmail').value.trim() }); save(); closeSheet(); render();
+    Object.assign(c, { name, phone: $('#cPhone').value.trim(), email: $('#cEmail').value.trim(), func: $('#cFunc').value.trim() }); save(); closeSheet(); render();
   },
   delContact: () => { state.contacts = state.contacts.filter((c) => c.id !== sheetCtx.id); save(); closeSheet(); render(); },
   backup: async () => {
@@ -802,7 +901,7 @@ document.addEventListener('input', (e) => {
   }
   if (el.id === 'shTo' || el.id === 'shName' || el.id === 'shPhone' || el.id === 'shEmail') { sheetCtx?.update?.(); return; }
   if (el.dataset.set) { state.settings[el.dataset.set] = el.checked; save(); applyTheme(); return; }
-  if (el.dataset.setSel) { state.settings[el.dataset.setSel] = el.value; save(); applyTheme(); return; }
+  if (el.dataset.setSel) { state.settings[el.dataset.setSel] = el.value; if (el.dataset.setSel === 'myRank') state.settings.rankSel = [el.value]; save(); applyTheme(); return; }
   if (el.dataset.ntfy) {
     const k = el.dataset.ntfy;
     state.settings[k] = k === 'ntfyTopic' ? el.value.trim().replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64) : el.value.trim();
@@ -814,6 +913,8 @@ document.addEventListener('input', (e) => {
   if (el.dataset.setText) { state.settings[el.dataset.setText] = el.value; save(); return; }
   if (el.hasAttribute('data-ship')) { state.shipName = el.value; save(); return; }
   if (el.id === 'mapRoute') { view.mapRoute = el.value; render(); return; }
+  if (el.id === 'ofPerson' || el.id === 'ofFunc') { OF[el.id === 'ofPerson' ? 'person' : 'func'] = el.value; render(); return; }
+  if ((el.id === 'repPaste' || el.id === 'pasteBox') && /(route|report)=[A-Za-z0-9_-]{20,}|^\s*\{[\s\S]*\}\s*$/.test(el.value)) { const v = el.value; handlePasted(v).then((ok) => { if (ok && $('#' + el.id)) $('#' + el.id).value = ''; }); return; }
   if (el.id === 'placeSel') { view.placing = el.value || null; render(); return; }
 });
 $('#fileImport').addEventListener('change', async (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) handleImportText(await f.text()); });
@@ -840,9 +941,39 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', applyThe
 
 async function checkHash() {
   try {
+    const raw = location.href;
     const pkg = await readHashPayload();
-    if (pkg) { history.replaceState(null, '', location.pathname + location.search); if (pkg.kind === 'route') importSheet(pkg); else if (pkg.kind === 'report') reportSheet(pkg); }
-  } catch (e) { console.warn(e); toast(t('Kon de gedeelde route niet lezen')); }
+    if (!pkg) return;
+    history.replaceState(null, '', location.pathname + location.search);
+    // iPhone: een link uit WhatsApp opent in Safari, niet in de app op het beginscherm (eigen opslag!)
+    if (isIOS() && !isStandalone() && !state.settings.iosUseSafari) return iosLinkSheet(pkg, raw);
+    if (pkg.kind === 'route') importSheet(pkg); else if (pkg.kind === 'report') autoImportReport(pkg, 'link');
+  } catch (e) { console.warn(e); toast(t('Kon de gedeelde route niet lezen') + (typeof DecompressionStream === 'undefined' ? ' – ' + t('deze browser is te oud (iOS 16.4+ nodig)') : '')); }
+}
+function iosLinkSheet(pkg, link) {
+  const isR = pkg.kind === 'route';
+  openSheet(`<h2>${isR ? t('📲 Route ontvangen') : t('📨 Rapport ontvangen')}</h2><p><b>${esc(isR ? tx(pkg.route, 'name') : pkg.routeName)}</b>${isR ? ' · ' + plural(pkg.route.steps.length, t('taak'), t('taken')) : ' · ' + t('door {name}', { name: esc(pkg.by || '?') })}</p>
+    <p class="infobox">${t('Op de iPhone opent een link altijd in Safari. De app op je beginscherm heeft een eigen opslag, dus zet hem daar zo over:')}</p>
+    <ol class="iossteps"><li><span class="ico">1</span><div><b>${isR ? t('Tik op "📋 Kopieer route"') : t('Tik op "📋 Kopieer rapport"')}</b></div></li><li><span class="ico">2</span><div><b>${t('Open Schip Route vanaf je beginscherm')}</b><small>${t('Nog niet geïnstalleerd? Zie "Op beginscherm zetten" hieronder.')}</small></div></li><li><span class="ico">3</span><div><b>${isR ? t('Tik op "📋 Route plakken"') : t('Historie → Door anderen → "📋 Plakken"')}</b><small>${t('iOS vraagt of plakken mag: tik op "Sta plakken toe" / "Plak".')}</small></div></li></ol>
+    <div class="stack"><button class="btn primary big" data-act="iosCopyLink">${isR ? t('📋 Kopieer route') : t('📋 Kopieer rapport')}</button><button class="btn" data-act="iosInstall">${t('📲 Op beginscherm zetten (uitleg)')}</button><button class="btn ghost" data-act="iosUseHere">${t('Toch hier in Safari gebruiken')}</button></div>
+    <p class="muted small">${t('Tip: deel de route liever als bestand (.json). Dat bewaar je in Bestanden en open je in de app met "📥 Route-bestand importeren".')}</p>`, { iosLink: { pkg, link } });
+}
+/** Route of rapport uit geplakte tekst (link of JSON). Geeft true als het iets herkende. */
+async function handlePasted(text, via = 'paste') {
+  const s0 = String(text || '').trim(); if (!s0) return false;
+  try {
+    if (s0.startsWith('{')) { await handleImportText(s0, via); return true; }
+    if (/(route|report)=/.test(s0)) {
+      const pkg = await readHashPayload(s0);
+      if (pkg?.kind === 'route') { importSheet(pkg); return true; }
+      if (pkg?.kind === 'report') { autoImportReport(pkg, via); return true; }
+    }
+  } catch (e) { console.warn(e); toast(t('Geen geldige route of rapport gevonden')); return true; }
+  return false;
+}
+function pasteSheet() {
+  openSheet(`<h2>${t('📋 Route of rapport plakken')}</h2><p class="muted">${t('Houd je vinger in het vak hieronder en kies "Plak". De route (of het rapport) wordt dan meteen gelezen.')}</p><textarea id="pasteBox" rows="4" placeholder="https://…#route=…"></textarea><div class="stack"><button class="btn primary" data-act="pasteRead">${t('Lezen')}</button><button class="btn ghost" data-act="importFile">${t('📄 Bestand kiezen')}</button></div>`, { paste: true });
+  setTimeout(() => $('#pasteBox')?.focus(), 50);
 }
 
 // ---------- vragen, observaties & outbox ----------
@@ -920,7 +1051,9 @@ function buildItem(c) {
 }
 /* i18n-skip-end */
 async function queueItem(item) {
-  await OB.put(item);
+  // Foto's/bijlagen als ArrayBuffer bewaren: Safari (iOS) kan Blobs in IndexedDB niet altijd opslaan (o.a. privé-modus).
+  for (const ph of item.photos || []) if (ph.blob) { ph.type = ph.blob.type; ph.buf = await ph.blob.arrayBuffer(); delete ph.blob; }
+  try { await OB.put(item); } catch (e) { console.warn('outbox', e); toast(t('Opslaan in de outbox lukte niet: {msg}', { msg: e?.name || e?.message || '?' }), 5000); return; }
   await refreshOutbox();
   try { const reg = await navigator.serviceWorker?.ready; await reg?.sync?.register('outbox'); } catch { /* geen Background Sync */ }
   if (navigator.onLine) return flushNow(false, item.id);
@@ -983,7 +1116,10 @@ $('#fileCam').addEventListener('change', (e) => { const fs = [...e.target.files]
 $('#fileGal').addEventListener('change', (e) => { const fs = [...e.target.files]; e.target.value = ''; addPhotos(fs); });
 addEventListener('online', () => setTimeout(() => flushNow(), 800));
 setInterval(() => { if (outboxPending && navigator.onLine) flushNow(); }, 30000);
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && outboxPending) flushNow(); });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { if (outboxPending) flushNow(); maybePoll(); } });
+// iPhone/Safari heeft geen Background Sync: versturen bij openen, terugkeren naar de app en focus.
+addEventListener('focus', () => { if (outboxPending) flushNow(); });
+addEventListener('pageshow', () => { if (outboxPending) flushNow(); });
 navigator.serviceWorker?.addEventListener('message', (e) => { if (e.data?.type === 'outbox') refreshOutbox(); });
 
 
@@ -1038,7 +1174,7 @@ function viewCrewRoutes() {
     h += `<article class="card route"><div class="tap" data-act="openRoute" data-id="${r.id}"><h2>${esc(tx(r, 'name'))}</h2><p>${plural(r.steps.length, t('taak'), t('taken'))} · ${plural(nLoc, t('locatie'), t('locaties'))}${r.from ? ` · ${t('van {name}', { name: `<b>${esc(r.from)}</b>` })}` : ''}</p>${r.description ? `<p class="muted">${esc(tx(r, 'description'))}</p>` : ''}</div>
       <div class="stack"><button class="btn ok big" data-act="startRun" data-id="${r.id}" ${r.steps.length ? '' : 'disabled'}>${t('▶ Start ronde')}</button></div></article>`;
   }
-  h += `</div><div class="stack"><div class="row"><button class="btn" data-act="newObs">${t('👁 Extra observatie')}</button><button class="btn" data-act="openOutbox">${t('📤 Outbox')}</button></div><button class="btn ghost" data-act="importFile">${t('📥 Route-bestand importeren')}</button></div>`;
+  h += `</div><div class="stack"><div class="row"><button class="btn" data-act="newObs">${t('👁 Extra observatie')}</button><button class="btn" data-act="openOutbox">${t('📤 Outbox')}</button></div><div class="row"><button class="btn ghost" data-act="importFile">${t('📥 Route-bestand importeren')}</button><button class="btn ghost" data-act="pasteRoute">${t('📋 Route plakken')}</button></div></div>`;
   const runs = [...state.runs].reverse().slice(0, 5);
   if (runs.length) h += `<h3 class="sec">${t('Laatste rondes')}</h3><ul class="locs">${runs.map((run) => { const c = runStats(run); return `<li><span>${esc(run.routeName)}<small> · ${fmtDT(run.finishedAt)} · ✔ ${c.done} ↷ ${c.skipped} ⚠ ${c.problem}${run.reportSentAt ? ' · 📨 ' + t('verstuurd') : ''}</small></span><button class="btn small" data-act="sendReport" data-id="${run.id}">${run.reportSentAt ? t('Opnieuw sturen') : t('📨 Stuur rapport')}</button></li>`; }).join('')}</ul>`;
   return h;
@@ -1053,7 +1189,7 @@ function viewCrewMore() {
   let h = header(t('Meer'));
   h += `<section class="card"><h2>${t('🌐 Taal · Language · Bahasa')}</h2><div class="seg langseg">${Object.entries(LANGS).map(([k, v]) => `<button class="${k === getLang() ? 'on' : ''}" data-act="setLang" data-v="${k}">${v.flag} ${k.toUpperCase()}</button>`).join('')}</div></section>`;
   h += `<section class="card"><h2>${t('Instellingen')}</h2><label>${t('Mijn naam (in rapporten en meldingen)')}<input data-set-text="userName" value="${esc(st.userName || '')}"></label>
-    ${tog('bigText', t('Extra grote tekst'))}${tog('vibrate', t('Trillen bij volgende stap'))}${tog('speak', t('Instructie uitspreken (spraak)'))}${tog('wakeLock', t('Scherm aan houden tijdens ronde'))}${tog('fullscreen', t('Ronde schermvullend starten'))}</section>`;
+    ${tog('bigText', t('Extra grote tekst'))}${tog('vibrate', t('Trillen bij volgende stap'))}${tog('speak', t('Instructie uitspreken (spraak)'))}${tog('wakeLock', t('Scherm aan houden tijdens ronde'))}${fsToggle(tog)}</section>`;
   h += `<section class="card"><h2>${t('📤 Outbox')}</h2><p class="muted small">${t('Vragen, observaties en rapporten gaan naar kanaal:')} <b>${esc(st.ntfyTopic || '—')}</b></p><button class="btn" data-act="openOutbox">${t('📤 Outbox openen')}</button></section>`;
   h += modeCard();
   h += `<section class="card"><h2>${t('App')}</h2><p class="muted">${t('Versie')} ${APP_VERSION} ${t('· werkt offline na eerste keer openen · gegevens blijven op dit toestel.')}</p><button class="btn ghost" data-act="showInstall">${t('Installatie-uitleg')}</button></section>`;
@@ -1138,12 +1274,48 @@ function reportSheet(pkg) {
     ${exists ? `<p class="warnbox">${t('Dit rapport is al geïmporteerd.')}</p>` : ''}
     <div class="stack"><button class="btn primary big" data-act="repImport" ${exists ? 'disabled' : ''}>${t('Importeren in historie')}</button><button class="btn ghost" data-act="closeSheet">${t('Annuleren')}</button></div>`, { repPkg: pkg });
 }
-function importReport(pkg) {
-  const run = { id: pkg.runId, routeId: pkg.routeId, routeName: pkg.routeName, ship: pkg.ship, by: pkg.by, startedAt: pkg.startedAt, finishedAt: pkg.finishedAt, results: pkg.results, messages: pkg.messages || [], received: { at: new Date().toISOString(), lang: pkg.lang } };
+function importReport(pkg, via = 'link') {
+  const run = { id: pkg.runId, routeId: pkg.routeId, routeName: pkg.routeName, ship: pkg.ship, by: pkg.by, startedAt: pkg.startedAt, finishedAt: pkg.finishedAt, results: pkg.results, messages: pkg.messages || [], received: { at: new Date().toISOString(), lang: pkg.lang, via } };
   state.runs.push(run);
   const m = state.maint ? MT.applyRun(run) : { done: 0, missing: 0 };
-  run.maradDone = m.done; save();
+  run.maradDone = m.done; run.maradApplied = !!state.maint; save();
   return m;
+}
+/** Rapport direct importeren (link geopend, geplakt, bestand of meldingskanaal) en de pagina "Door anderen" tonen. */
+async function autoImportReport(pkg, via = 'link', quiet = false) {
+  if (isCrew()) { toast(t('Rapporten importeren kan alleen in Beheer-modus (Meer → Modus).'), 4500); return false; }
+  if (!pkg?.runId || !Array.isArray(pkg.results)) { if (!quiet) toast(t('Geen geldig rapport gevonden')); return false; }
+  if (state.runs.some((x) => x.id === pkg.runId)) { if (!quiet) { toast(t('Dit rapport is al geïmporteerd.')); closeSheet(); go('historie', { hist: 'others' }); } return false; }
+  await MT.ensureMaint();
+  const m = importReport(pkg, via);
+  if (!quiet) { closeSheet(); toast(m.done ? t('Rapport van {name} geïmporteerd · {n} MARAD-taken afgemeld', { name: pkg.by || '?', n: m.done }) : t('Rapport van {name} geïmporteerd', { name: pkg.by || '?' }), 4000); go('historie', { hist: 'others' }); }
+  return true;
+}
+/* Rapporten ophalen uit het eigen ntfy-kanaal (bericht met link of .json-bijlage). ntfy.sh bewaart berichten ±12 uur, bijlagen ±3 uur. */
+let polling = false;
+async function pollNtfy(manual = false) {
+  const st = state.settings; if (polling || isCrew() || !st.ntfyTopic || !navigator.onLine) { if (manual && !navigator.onLine) toast(t('Geen internet')); return 0; }
+  polling = true; let n = 0, seen = 0;
+  try {
+    const base = (st.ntfyServer || 'https://ntfy.sh').replace(/\/+$/, '');
+    const r = await fetch(`${base}/${encodeURIComponent(st.ntfyTopic)}/json?poll=1&since=${encodeURIComponent(st.ntfyPollId || '24h')}`, { cache: 'no-store' });
+    if (!r.ok) throw new Error('ntfy ' + r.status);
+    const msgs = (await r.text()).split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter((m) => m?.event === 'message');
+    for (const m of msgs) {
+      let pkg = null;
+      try {
+        if (m.click && /report=/.test(m.click)) pkg = await readHashPayload(m.click);
+        else if (m.attachment?.url && /^rapport-.*\.json$/i.test(m.attachment.name || '')) { const a = await fetch(m.attachment.url); if (a.ok) pkg = await a.json(); }
+      } catch (e) { console.warn('ntfy-rapport', e); }
+      if (pkg?.kind === 'report') { seen++; if (await autoImportReport(pkg, 'ntfy', true)) n++; }
+    }
+    if (msgs.length) st.ntfyPollId = msgs[msgs.length - 1].id;
+    st.ntfyPolledAt = new Date().toISOString(); save();
+    if (manual || n) toast(n ? t('{n} nieuw(e) rapport(en) opgehaald', { n }) : seen ? t('Geen nieuwe rapporten (al geïmporteerd)') : t('Geen rapporten in het meldingskanaal (ntfy bewaart ze ±12 uur)'), 3500);
+    if (n || view.tab === 'historie') render();
+  } catch (e) { console.warn(e); if (manual) toast(t('Ophalen lukte niet: {msg}', { msg: e.message }), 4000); }
+  finally { polling = false; }
+  return n;
 }
 Object.assign(actions, {
   sendReport: (a) => sendReport(state.runs.find((x) => x.id === a.dataset.id)),
@@ -1157,32 +1329,54 @@ Object.assign(actions, {
   repCopy: async () => { const { run, link, txt } = sheetCtx.report; await copyText(txt + '\n' + link); run.reportSentAt = new Date().toISOString(); save(); },
   repImport: async () => {
     const pkg = sheetCtx.repPkg; await MT.ensureMaint();
-    const m = importReport(pkg); closeSheet();
+    const m = importReport(pkg, 'link'); closeSheet();
     toast(m.done ? t('Rapport geïmporteerd · {n} MARAD-taken afgemeld', { n: m.done }) : t('Rapport geïmporteerd'), 4000);
     go('historie', { runId: pkg.runId });
   },
   reportImport: () => openSheet(`<h2>${t('📨 Rapport importeren')}</h2><p class="muted">${t('Plak de link uit WhatsApp of de melding, of kies het rapportbestand (.json).')}</p><textarea id="repText" rows="3" placeholder="https://…#report=…"></textarea><div class="stack"><button class="btn primary" data-act="repFromText">${t('Link lezen')}</button><button class="btn" data-act="importFile">${t('📄 Bestand kiezen')}</button></div>`),
   repFromText: async () => {
     const txt = $('#repText').value.trim();
-    try { const pkg = txt.startsWith('{') ? JSON.parse(txt) : await readHashPayload(txt); if (pkg?.kind === 'report') return reportSheet(pkg); if (pkg?.kind === 'route') return importSheet(pkg); } catch (e) { console.warn(e); }
+    try { const pkg = txt.startsWith('{') ? JSON.parse(txt) : await readHashPayload(txt); if (pkg?.kind === 'report') return autoImportReport(pkg, 'paste'); if (pkg?.kind === 'route') return importSheet(pkg); } catch (e) { console.warn(e); }
     toast(t('Geen geldig rapport gevonden'));
   },
 });
 
+Object.assign(actions, {
+  histMode: (a) => { view.hist = a.dataset.v; render(); if (view.hist === 'others') maybePoll(); },
+  ofPeriod: (a) => { OF.period = a.dataset.v; render(); },
+  seenRun: (a) => { const r = state.runs.find((x) => x.id === a.dataset.id); if (r?.received) { r.received.seenAt = new Date().toISOString(); save(); render(); } },
+  seenAll: () => { const now = new Date().toISOString(); for (const r of received()) r.received.seenAt ||= now; save(); render(); toast(t('Alles gemarkeerd als gezien')); },
+  openRunH: (a) => go('historie', { runId: a.dataset.id }),
+  goMaradDone: () => { MT.actions.mView({ dataset: { v: 'done' } }); go('onderhoud'); },
+  goSug: () => { MT.actions.mView({ dataset: { v: 'sug' } }); go('onderhoud'); },
+  ntfyPoll: () => pollNtfy(true),
+  repClip: async () => { let txt = ''; try { txt = await navigator.clipboard.readText(); } catch { /* geen toegang */ } if (!(await handlePasted(txt))) { toast(t('Niets bruikbaars op het klembord – plak in het vak (lang indrukken → Plak).'), 4000); $('#repPaste')?.focus(); } },
+  pasteRoute: async () => { let txt = ''; try { if (navigator.clipboard?.readText) txt = await navigator.clipboard.readText(); } catch { /* geen toegang */ } if (!(await handlePasted(txt))) pasteSheet(); },
+  pasteRead: async () => { if (!(await handlePasted($('#pasteBox').value))) toast(t('Geen geldige route of rapport gevonden')); },
+  iosInstall: () => iosInstallSheet(),
+  iosCopyLink: async () => { const { link } = sheetCtx.iosLink; const ok = await copyText(link); if (ok) toast(t('Gekopieerd ✔ – open nu Schip Route vanaf je beginscherm en tik op "📋 Route plakken"'), 6000); },
+  iosUseHere: () => { const { pkg } = sheetCtx.iosLink; closeSheet(); if (pkg.kind === 'route') importSheet(pkg); else autoImportReport(pkg, 'link'); },
+});
+let lastPoll = 0;
+function maybePoll() { if (!isCrew() && navigator.onLine && Date.now() - lastPoll > 60000) { lastPoll = Date.now(); pollNtfy(false); } }
+
 // ---------- onderhoud (MARAD) ----------
-const MT = initMaint({ legacyMaint, state, save, rid, esc, header, openSheet, closeSheet, toast, render: () => render(), go: (...x) => go(...x), shareFile, csvCell, fmtDT, plural, locSelect, loc, tx, STRATEGIES, orderSteps });
+const MT = initMaint({ legacyMaint, state, save, rid, esc, header, openSheet, closeSheet, toast, render: () => render(), go: (...x) => go(...x), shareFile, csvCell, fmtDT, plural, locSelect, loc, tx, STRATEGIES, orderSteps, waNum: (p) => waNum(p), buildShareLink, routePackage, openShare: (r) => openShare(r) });
 Object.assign(actions, MT.actions);
 
 // ---------- start ----------
 if (!state.settings.lang) { state.settings.lang = getLang(); save(); }
 // Eerste start via een gedeelde route-link → bemanning; anders (eigen toestel / bestaande gegevens) → beheer.
 if (!state.settings.mode) { state.settings.mode = /route=/.test(location.hash) && !state.runs.length ? 'bemanning' : 'beheer'; save(); }
-if (!isCrew()) MT.ensureMaint();
+if (!isCrew()) MT.ensureMaint().then((m) => { if (m?.tasks && (view.tab === 'routes' || view.tab === 'onderhoud') && !view.routeId && $('#sheet').hidden) render(); });
 render();
 checkHash();
+// iPhone in Safari (niet vanaf beginscherm): installatie-uitleg automatisch tonen (eenmaal per sessie, niet bij een gedeelde link)
+if (isIOS() && !isStandalone() && !state.settings.hideInstall && !/(route|report)=/.test(location.hash) && !sessionStorage.getItem('iosHint')) { sessionStorage.setItem('iosHint', '1'); setTimeout(() => { if ($('#sheet').hidden) iosInstallSheet(); }, 600); }
+if (!isCrew()) setTimeout(maybePoll, 1500);
 if (state.activeRun && state.settings.resumeOnStart && !location.hash.includes('route=')) { $('#run').hidden = false; document.body.classList.add('running'); renderRun(true); }
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   navigator.serviceWorker.register('./sw.js').then(() => (window.__swRegistered = true)).catch((e) => console.warn('SW', e));
 }
 refreshOutbox().then(() => flushNow());
-window.__app = { state, view: () => view, flushNow, refreshOutbox, MT };
+window.__app = { state, view: () => view, flushNow, refreshOutbox, MT, pollNtfy, isIOS, isStandalone };

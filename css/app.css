@@ -134,7 +134,7 @@ ol.results li.st-problem > b { color: var(--warn); } ol.results li.oor { color: 
 #sheet { position: fixed; inset: 0; z-index: 50; display: flex; align-items: flex-end; justify-content: center; }
 #sheet[hidden] { display: none; }
 .sheet-bg { position: absolute; inset: 0; background: rgba(0,0,0,.5); }
-.sheet-card { position: relative; width: 100%; max-width: 760px; max-height: 92vh; overflow-y: auto; background: var(--bg); border-radius: 22px 22px 0 0; padding: 18px 16px calc(18px + env(safe-area-inset-bottom)); animation: up .18s ease-out; }
+.sheet-card { position: relative; width: 100%; max-width: 760px; max-height: 92vh; max-height: 92dvh; overflow-y: auto; background: var(--bg); border-radius: 22px 22px 0 0; padding: 18px 16px calc(18px + env(safe-area-inset-bottom)); animation: up .18s ease-out; }
 @keyframes up { from { transform: translateY(40px); opacity: 0; } }
 .row.sticky { position: sticky; bottom: -18px; background: var(--bg); padding: 10px 0; margin-bottom: 0; }
 .fieldrow { border: 1px solid var(--line); border-radius: 12px; padding: 4px 10px; margin: 8px 0; background: var(--card); }
@@ -240,7 +240,7 @@ svg.ship.top .mk .nr { font-size: 13px; }
 .selbar span { flex: 1; font-weight: 700; } .selbar .iconbtn { background: transparent; color: #fff; border-color: rgba(255,255,255,.5); }
 .mdl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 8px 0; } .mdl dt { color: var(--muted); } .mdl dd { margin: 0; font-weight: 600; }
 .wcard { margin: 8px 0; border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px; background: var(--bg); } .wcard summary { font-weight: 700; cursor: pointer; min-height: 36px; display: flex; align-items: center; }
-.wcard pre { white-space: pre-wrap; font: inherit; font-size: .85rem; max-height: 40vh; overflow: auto; margin: 4px 0; }
+.wcard pre { white-space: pre-wrap; font: inherit; font-size: .85rem; max-height: 40vh; max-height: 40dvh; overflow: auto; margin: 4px 0; }
 .mtag { font-size: .8rem; color: var(--muted); margin: 6px 0 0; }
 .infobox, .okbox { border-radius: 10px; padding: 10px 12px; margin: 8px 0; } .infobox { background: #e7f1fb; color: #0b3d5c; border: 1px solid #b9d3ea; } .okbox { background: #e6f6ec; color: #0a5d2c; border: 1px solid #a8dcbb; }
 [data-theme="dark"] .infobox { background: #12324a; color: #d6e9f8; border-color: #24527a; } [data-theme="dark"] .okbox { background: #0f3420; color: #c9f0d6; border-color: #1f6b3e; }
@@ -252,3 +252,43 @@ svg.ship.top .mk .nr { font-size: 13px; }
 body:has(#sheet:not([hidden])) .selbar { display: none; }
 .unlock input[type=password] { width: 100%; min-height: 56px; font-size: 1.2rem; border: 2px solid var(--line); border-radius: 12px; padding: 0 14px; margin: 8px 0; background: var(--card); color: var(--fg); }
 .err { color: var(--warn); font-weight: 700; margin: 4px 0 8px; }
+
+/* v1.5: functie-chips, voorstellen, afgetekend door anderen, iPhone */
+html { -webkit-text-size-adjust: 100%; } body { min-height: 100vh; min-height: 100dvh; -webkit-tap-highlight-color: transparent; }
+#run { height: 100vh; height: 100dvh; }
+.rchips { flex-wrap: nowrap; scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch; }
+.rchips .chip { display: inline-flex; align-items: center; gap: 6px; scroll-snap-align: start; }
+.chip .cn { font-style: normal; font-size: .8rem; opacity: .75; }
+.chip .cr { background: var(--bad, #c62828); color: #fff; border-radius: 99px; padding: 1px 7px; font-size: .78rem; }
+.chip.on .cn { opacity: .9; }
+.card.sug h3 { margin: 0 0 4px; font-size: 1.05rem; }
+.card.sug .row { margin-top: 6px; } .sugstats { margin: 6px 0; line-height: 1.9; }
+.card.sug.k-safety { border-left: 6px solid #e65100; } .card.sug.k-mk { border-left: 6px solid #1565c0; } .card.sug.k-overdue { border-left: 6px solid #c62828; } .card.sug.k-hours { border-left: 6px solid #6a1b9a; }
+.sugbanner { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; text-align: left; font: inherit; color: var(--fg); border: 2px dashed var(--acc); }
+.sugbanner small { color: var(--muted); }
+.radios .switch { min-height: 40px; } .radios input[type=radio] { width: 24px; height: 24px; min-height: 0; margin: 0; flex: none; accent-color: var(--pri); }
+.unl.small, p.small { font-size: .85rem; }
+.btn.wa small { font-weight: 500; opacity: .85; }
+.tplcard { border-left: 6px solid var(--acc); }
+#nav button { position: relative; }
+.nbadge { position: absolute; top: 6px; left: 50%; margin-left: 8px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 99px; background: #c62828; color: #fff; font-size: .72rem; line-height: 20px; font-weight: 800; }
+.nbadge[hidden] { display: none; }
+.sbadge { background: #c62828; color: #fff; border-radius: 99px; padding: 0 7px; font-size: .8rem; }
+.seg button.on .sbadge { background: #fff; color: #c62828; }
+.card.others { border-left: 6px solid var(--line); } .card.others.new { border-left-color: #c62828; }
+.ohead { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+ul.oresults { list-style: none; padding: 0; margin: 6px 0; } ul.oresults > li { padding: 8px 0; border-top: 1px solid var(--line); }
+ul.oresults > li.st-problem b, ul.oresults > li.st-skipped b { color: var(--warn); }
+ul.oresults ul { margin: 4px 0 0 18px; padding: 0; font-size: .92rem; } ul.oresults li.oor { color: var(--warn); font-weight: 700; }
+ul.oresults .mtag { display: block; color: var(--muted); }
+ul.omsgs { margin: 4px 0; padding-left: 18px; }
+h3.person { margin-top: 18px; } h4.odate { margin: 10px 0 4px; color: var(--muted); font-size: .9rem; }
+.ofsum { font-weight: 600; } .newc { color: #c62828; } .cr { color: #c62828; }
+.pastecard textarea { min-height: 56px; }
+small.func { color: var(--muted); font-weight: 500; }
+ol.iossteps { list-style: none; padding: 0; margin: 10px 0; counter-reset: none; }
+ol.iossteps li { display: flex; gap: 12px; align-items: flex-start; padding: 10px 0; border-bottom: 1px solid var(--line); }
+ol.iossteps .ico { flex: none; width: 40px; height: 40px; border-radius: 12px; background: var(--chip); display: flex; align-items: center; justify-content: center; font-size: 1.3rem; font-weight: 800; }
+ol.iossteps small { display: block; color: var(--muted); }
+.banner.ios { background: linear-gradient(135deg, var(--pri), #0d5c8a); }
+@supports (padding: max(0px)) { #sheet .sheet-card { padding-bottom: max(18px, env(safe-area-inset-bottom)); } }
