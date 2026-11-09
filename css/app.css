@@ -263,7 +263,7 @@ html { -webkit-text-size-adjust: 100%; } body { min-height: 100vh; min-height: 1
 .chip.on .cn { opacity: .9; }
 .card.sug h3 { margin: 0 0 4px; font-size: 1.05rem; }
 .card.sug .row { margin-top: 6px; } .sugstats { margin: 6px 0; line-height: 1.9; }
-.card.sug.k-safety { border-left: 6px solid #e65100; } .card.sug.k-mk { border-left: 6px solid #1565c0; } .card.sug.k-overdue { border-left: 6px solid #c62828; } .card.sug.k-hours { border-left: 6px solid #6a1b9a; }
+.card.sug.k-safety { border-left: 6px solid #e65100; } .card.sug.k-mk { border-left: 6px solid #1565c0; } .card.sug.k-overdue { border-left: 6px solid #c62828; } .card.sug.k-hours { border-left: 6px solid #6a1b9a; } .card.sug.k-fixed { border-left: 6px solid #00897b; }
 .sugbanner { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; text-align: left; font: inherit; color: var(--fg); border: 2px dashed var(--acc); }
 .sugbanner small { color: var(--muted); }
 .radios .switch { min-height: 40px; } .radios input[type=radio] { width: 24px; height: 24px; min-height: 0; margin: 0; flex: none; accent-color: var(--pri); }

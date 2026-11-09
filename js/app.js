@@ -5,7 +5,7 @@ import { initMaint } from './maint.js';
 import { shipSVG, svgPointToLoc, VIEWS } from './shipmap.js';
 import { t, tx, setTx, getLang, setLang, LANGS, LOCALES } from './i18n.js';
 
-const APP_VERSION = '1.5.0';
+const APP_VERSION = '1.6.0';
 const OB = self.OutboxCore;
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];

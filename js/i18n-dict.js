@@ -693,7 +693,17 @@ export const DICT = {
 "🔁 Terugkerend sjabloon: route elke {p} verversen met de taken die dan aan de beurt zijn": "🔁 Recurring template: refresh the route every {p} with the tasks due then",
 "🔁 {n} sjabloon-route(s) ververst": "🔁 {n} template route(s) refreshed",
 "🔄 Ophalen uit meldingskanaal": "🔄 Fetch from notification channel",
-"Opslaan in de outbox lukte niet: {msg}": "Saving to the outbox failed: {msg}"
+"Opslaan in de outbox lukte niet: {msg}": "Saving to the outbox failed: {msg}",
+"De vaste rondes zitten in de versleutelde gegevens. Ontgrendel één keer opnieuw om ze te laden (je afmeldingen blijven bewaard).": "The fixed rounds are stored in the encrypted data. Unlock once more to load them (your sign-offs are kept).",
+"Geen vaste rondes voor deze functie(s). Kies \"Alle functies\".": "No fixed rounds for these rank(s). Choose \"All ranks\".",
+"Niet in een vaste ronde ({n} wekelijkse/2-wekelijkse/maandelijkse taken)": "Not in a fixed round ({n} weekly/2-weekly/monthly tasks)",
+"Overige voorstellen": "Other suggestions",
+"Vaste ronde · {p}": "Fixed round · {p}",
+"Vaste rondes": "Fixed rounds",
+"Vaste rondes per functie en interval; elke taak zit in maar één vaste ronde. Getoond: {n} van {m} (functiefilter hierboven).": "Fixed rounds per rank and interval; each task belongs to only one fixed round. Showing {n} of {m} (rank filter above).",
+"elke 2 weken": "every 2 weeks",
+"periode van 2 weken": "2-week period",
+"🔐 Ontgrendelen": "🔐 Unlock"
 },
 "id": {
 " – lang; deel liever als bestand": "– panjang; sebaiknya bagikan sebagai file",
@@ -1388,6 +1398,16 @@ export const DICT = {
 "🔁 Terugkerend sjabloon: route elke {p} verversen met de taken die dan aan de beurt zijn": "🔁 Templat berulang: perbarui rute setiap {p} dengan tugas yang jatuh tempo saat itu",
 "🔁 {n} sjabloon-route(s) ververst": "🔁 {n} rute templat diperbarui",
 "🔄 Ophalen uit meldingskanaal": "🔄 Ambil dari kanal notifikasi",
-"Opslaan in de outbox lukte niet: {msg}": "Gagal menyimpan ke outbox: {msg}"
+"Opslaan in de outbox lukte niet: {msg}": "Gagal menyimpan ke outbox: {msg}",
+"De vaste rondes zitten in de versleutelde gegevens. Ontgrendel één keer opnieuw om ze te laden (je afmeldingen blijven bewaard).": "Ronde tetap tersimpan di data terenkripsi. Buka kunci sekali lagi untuk memuatnya (catatan selesai Anda tetap tersimpan).",
+"Geen vaste rondes voor deze functie(s). Kies \"Alle functies\".": "Tidak ada ronde tetap untuk jabatan ini. Pilih \"Semua jabatan\".",
+"Niet in een vaste ronde ({n} wekelijkse/2-wekelijkse/maandelijkse taken)": "Tidak termasuk ronde tetap ({n} tugas mingguan/2-mingguan/bulanan)",
+"Overige voorstellen": "Saran lainnya",
+"Vaste ronde · {p}": "Ronde tetap · {p}",
+"Vaste rondes": "Ronde tetap",
+"Vaste rondes per functie en interval; elke taak zit in maar één vaste ronde. Getoond: {n} van {m} (functiefilter hierboven).": "Ronde tetap per jabatan dan interval; setiap tugas hanya ada di satu ronde tetap. Ditampilkan: {n} dari {m} (filter jabatan di atas).",
+"elke 2 weken": "setiap 2 minggu",
+"periode van 2 weken": "periode 2 minggu",
+"🔐 Ontgrendelen": "🔐 Buka kunci"
 }
 };

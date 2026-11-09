@@ -2,7 +2,7 @@
 // Belangrijk: de app schrijft NIET terug naar MARAD. Afmeldingen gaan naar de export "Afgemeld voor MARAD".
 import { t, getLang, LOCALES } from './i18n.js';
 import { parseMarad, mergeMarad, autoLocation, status, dueInDays, isHours, markDone, undoDone, todayISO, parseDate } from './marad.js';
-import { suggestions, findSuggestion, rankStats, periodKey } from './suggest.js';
+import { suggestions, findSuggestion, rankStats, periodKey, fixedRounds } from './suggest.js';
 
 let A; // helpers uit app.js
 const F = { view: 'tree', st: 'all', loc: '', q: '' };
@@ -298,36 +298,52 @@ export function view() {
 
 // ---------- voorgestelde routes ----------
 const KIND_ICON = { safety: '🦺', mk: '⚙️', week: '📅', month: '🗓', hours: '⏱', overdue: '⏰' };
+const kIcon = (sg) => (sg.kind === 'fixed' ? sg.fixed.icon || '📌' : KIND_ICON[sg.kind]);
 function sugName(sg) {
+  if (sg.kind === 'fixed') return sg.fixed.name?.[getLang()] || sg.fixed.name?.nl || sg.fixed.id;
   const f = sg.ranks.join(' / ');
   return { safety: t('Wekelijkse safety-ronde – {f}', { f }), mk: t('Wekelijkse machinekamerronde – {f}', { f }), week: t('Wekelijkse ronde – {f}', { f }), month: t('Maandelijkse ronde – {f}', { f }), hours: t('Draaiuren-onderhoud – {f}', { f }), overdue: t('Achterstallig onderhoud – {f}', { f }) }[sg.kind];
 }
-const sugDesc = (sg) => ({ safety: t('Taken met interval ≤ 2 weken: safety, reddingsmiddelen, brandbestrijding, alarmen.'), mk: t('Taken met interval ≤ 2 weken in machinekamer en technische systemen.'), week: t('Alle taken met interval ≤ 2 weken.'), month: t('Alle taken met interval van een maand.'), hours: t('Taken op draaiuren (te laat of bijna aan de beurt).'), overdue: t('Alle taken die nu te laat zijn.') }[sg.kind]);
-const periodLbl = (p) => (p === 'month' ? t('maandelijks') : t('wekelijks'));
+const sugDesc = (sg) => (sg.kind === 'fixed' ? t('Vaste ronde · {p}', { p: periodLbl(sg.period) }) : { safety: t('Taken met interval ≤ 2 weken: safety, reddingsmiddelen, brandbestrijding, alarmen.'), mk: t('Taken met interval ≤ 2 weken in machinekamer en technische systemen.'), week: t('Alle taken met interval ≤ 2 weken.'), month: t('Alle taken met interval van een maand.'), hours: t('Taken op draaiuren (te laat of bijna aan de beurt).'), overdue: t('Alle taken die nu te laat zijn.') }[sg.kind]);
+const periodLbl = (p) => (p === 'month' ? t('maandelijks') : p === '2w' ? t('elke 2 weken') : t('wekelijks'));
+const periodNoun = (p) => (p === 'month' ? t('maand') : p === '2w' ? t('periode van 2 weken') : t('week'));
 let SG = [];
-function allSug() { SG = suggestions(M(), { min: 3 }); return SG; }
-const sugBy = (k) => SG.find((x) => x.key === k) || allSug().find((x) => x.key === k);
-export function sugCount() { return M()?.tasks ? allSug().filter((x) => x.ranks.some((r) => rankSel().has(r)) || !rankSel().size).length : 0; }
+let FX = { rounds: [], leftovers: null };
+function allSug() { SG = suggestions(M(), { min: 3 }); FX = fixedRounds(M()); return SG; }
+const sugBy = (k) => [...FX.rounds, ...SG].find((x) => x.key === k) || (allSug(), [...FX.rounds, ...SG].find((x) => x.key === k));
+const rankFit = (x) => !rankSel().size || x.ranks.some((r) => rankSel().has(r));
+export function sugCount() { return M()?.tasks ? allSug().filter(rankFit).length + FX.rounds.filter(rankFit).length : 0; }
 const tplFor = (key) => (A.state.templates || []).find((x) => x.key === key);
 function sugCard(sg) {
   const tp = tplFor(sg.key); const r = tp && A.state.routes.find((x) => x.id === tp.routeId);
   const near = sg.tasks.filter((x) => ['overdue', 'week'].includes(status(x))).length;
-  return `<article class="card sug k-${sg.kind}"><h3>${KIND_ICON[sg.kind]} ${A.esc(sugName(sg))}</h3><p class="muted small">👤 ${A.esc(sg.ranks.join(', '))} · ${sugDesc(sg)}</p>
+  return `<article class="card sug k-${sg.kind}" data-k="${A.esc(sg.key)}"><h3>${kIcon(sg)} ${A.esc(sugName(sg))}</h3><p class="muted small">👤 ${A.esc(sg.ranks.join(', '))} · ${sugDesc(sg)}</p>
     <p class="sugstats"><span class="tag">${t('{n} taken', { n: sg.tasks.length })}</span> <span class="tag">${t('{n} nu aan de beurt', { n: sg.due.length })}</span>${sg.overdue ? ` <span class="tag warn">${t('{n} te laat', { n: sg.overdue })}</span>` : ''}${sg.kind !== 'hours' && sg.nextDue ? ` <small>· ${t('volgende: {d}', { d: fmtD(sg.nextDue) })}</small>` : ''}${near && near !== sg.due.length ? ` <small>· ${t('{n} binnen 7 d', { n: near })}</small>` : ''}</p>
     ${sg.noLoc ? `<p class="unl small">📍 ${t('{n} taken zonder locatie (kies er een bij Maak route of koppel ze in de lijst)', { n: sg.noLoc })}</p>` : ''}
     ${tp ? `<p class="okc small">🔁 ${t('Sjabloon actief ({p}) → route "{r}"', { p: periodLbl(tp.period), r: A.esc(r ? A.tx(r, 'name') : tp.name) })}${tp.assignee ? ' · 👤 ' + A.esc(tp.assignee) : ''}</p>` : ''}
     <div class="row"><button class="btn ok" data-act="sgRoute" data-k="${A.esc(sg.key)}">${t('🧭 Maak route')}</button><button class="btn" data-act="sgSend" data-k="${A.esc(sg.key)}">${t('📲 Stuur naar…')}</button></div>
     <div class="row"><button class="btn small ghost" data-act="sgShow" data-k="${A.esc(sg.key)}">${t('☰ Taken bekijken')}</button>${tp ? `<button class="btn small ghost" data-act="mTplStop" data-id="${tp.id}">${t('Sjabloon stoppen')}</button>` : `<button class="btn small ghost" data-act="sgRoute" data-k="${A.esc(sg.key)}" data-tpl="1">${t('🔁 Als terugkerend sjabloon')}</button>`}</div></article>`;
 }
+function fixedHTML() {
+  const m = M();
+  let h = `<h3 class="sec">📌 ${t('Vaste rondes')}</h3>`;
+  if (!m.fixedRounds?.length) return h + `<div class="warnbox">${t('De vaste rondes zitten in de versleutelde gegevens. Ontgrendel één keer opnieuw om ze te laden (je afmeldingen blijven bewaard).')}<div class="row"><button class="btn primary small" data-act="mUnlockSheet">${t('🔐 Ontgrendelen')}</button></div></div>`;
+  const xs = FX.rounds.filter(rankFit);
+  h += `<p class="muted small">${t('Vaste rondes per functie en interval; elke taak zit in maar één vaste ronde. Getoond: {n} van {m} (functiefilter hierboven).', { n: xs.length, m: FX.rounds.length })}</p>`;
+  h += xs.map(sugCard).join('') || `<p class="empty">${t('Geen vaste rondes voor deze functie(s). Kies "Alle functies".')}</p>`;
+  const lo = FX.leftovers; const nLo = lo ? lo.week.length + lo['2w'].length + lo.month.length : 0;
+  if (nLo) h += `<details class="auto"><summary>${t('Niet in een vaste ronde ({n} wekelijkse/2-wekelijkse/maandelijkse taken)', { n: nLo })}</summary><div class="mlist">${[...lo.week, ...lo['2w'], ...lo.month].sort(byDue).map(taskRow).join('')}</div></details>`;
+  return h + `<h3 class="sec">💡 ${t('Overige voorstellen')}</h3>`;
+}
 function sugHTML() {
   const rs = rankSel();
   const xs = allSug().filter((x) => !rs.size || x.ranks.some((r) => rs.has(r)));
-  let h = `<p class="infobox">${t('💡 Voorstellen op basis van functie (Rank) en interval. "Maak route" zet de taken die nu aan de beurt zijn op volgorde van locatie. Een sjabloon ververst de route elke week of maand met de taken die dan aan de beurt zijn.')}</p>`;
+  let h = fixedHTML() + `<p class="infobox">${t('💡 Voorstellen op basis van functie (Rank) en interval. "Maak route" zet de taken die nu aan de beurt zijn op volgorde van locatie. Een sjabloon ververst de route elke week of maand met de taken die dan aan de beurt zijn.')}</p>`;
   if (!xs.length) return h + `<p class="empty">${t('Geen voorstellen voor deze functie(s). Kies "Alle functies".')}</p>`;
   return h + xs.map(sugCard).join('');
 }
 function sugTasksSheet(sg) {
-  A.openSheet(`<h2>${KIND_ICON[sg.kind]} ${A.esc(sugName(sg))}</h2><p class="muted small">${t('{n} taken · {d} nu aan de beurt', { n: sg.tasks.length, d: sg.due.length })}</p><div class="mlist">${[...sg.tasks].sort(byDue).map(taskRow).join('')}</div><button class="btn ghost" data-act="closeSheet">${t('Sluiten')}</button>`);
+  A.openSheet(`<h2>${kIcon(sg)} ${A.esc(sugName(sg))}</h2><p class="muted small">${t('{n} taken · {d} nu aan de beurt', { n: sg.tasks.length, d: sg.due.length })}</p><div class="mlist">${[...sg.tasks].sort(byDue).map(taskRow).join('')}</div><button class="btn ghost" data-act="closeSheet">${t('Sluiten')}</button>`);
 }
 const dueSoon = (sg) => sg.tasks.filter((x) => ['overdue', 'week'].includes(status(x)));
 function pickSet(sg, k) { return k === 'all' ? sg.tasks : k === 'soon' ? dueSoon(sg) : sg.due; }
@@ -403,13 +419,13 @@ function makeRouteSheet(ctx = null) {
   const rk = sg ? sg.ranks : [];
   const cs = sortContacts(rk);
   const defName = sg ? sugName(sg) : t('Onderhoud {d}', { d: fmtD(todayISO()) });
-  A.openSheet(`<h2>${t('🧭 Route maken uit onderhoud')}</h2>${sg ? `<p class="muted small">${KIND_ICON[sg.kind]} ${A.esc(sugName(sg))}</p>` : `<p>${t('{n} taken op {l} locaties', { n: tasks.length, l: locs })}</p>`}
+  A.openSheet(`<h2>${t('🧭 Route maken uit onderhoud')}</h2>${sg ? `<p class="muted small">${kIcon(sg)} ${A.esc(sugName(sg))}</p>` : `<p>${t('{n} taken op {l} locaties', { n: tasks.length, l: locs })}</p>`}
     ${sets ? `<div class="flbl">${t('Welke taken?')}</div><div class="radios">${sets.map(([k, l, xs], i) => `<label class="switch"><input type="radio" name="mrSet" value="${k}" ${i ? '' : 'checked'}><span>${l} (${xs.length})</span></label>`).join('')}</div>` : ''}
     <label>${t('Naam')}<input id="mrName" value="${A.esc(defName)}"></label>
     <label>${t('Bestemd voor')}<select id="mrTo"><option value="">${t('— niemand / mezelf —')}</option>${cs.map((c) => `<option ${c.match && c === cs[0] ? 'selected' : ''} value="${A.esc(c.name)}">${c.match ? '⭐ ' : ''}${A.esc(c.name)}${c.func ? ' · ' + A.esc(c.func) : ''}</option>`).join('')}</select></label>
     <label>${t('Volgorde')}<select id="mrStrat">${Object.entries(A.STRATEGIES).map(([k, v]) => `<option value="${k}" ${k === 'kortste' && sg ? 'selected' : ''}>${A.esc(v.label)}</option>`).join('')}</select></label>
     ${nUn ? `<div class="warnbox">${t('{n} taken hebben nog geen locatie. Kies een locatie voor deze taken:', { n: nUn })}${A.locSelect(commonLoc(sg ? sg.tasks : tasks), 'id="mrLoc"', true)}</div>` : ''}
-    ${sg ? `<label class="switch"><input type="checkbox" id="mrTpl" ${ctx.tpl ? 'checked' : ''}><span>${t('🔁 Terugkerend sjabloon: route elke {p} verversen met de taken die dan aan de beurt zijn', { p: sg.period === 'month' ? t('maand') : t('week') })}</span></label>` : ''}
+    ${sg ? `<label class="switch"><input type="checkbox" id="mrTpl" ${ctx.tpl || sg.kind === 'fixed' ? 'checked' : ''}><span>${t('🔁 Terugkerend sjabloon: route elke {p} verversen met de taken die dan aan de beurt zijn', { p: periodNoun(sg.period) })}</span></label>` : ''}
     <p class="muted small">${t('Elke taak krijgt de velden "Uitgevoerd ja/nee" en "Opmerking" (bij draaiuren ook de urenstand). Na de ronde worden uitgevoerde taken afgemeld en komen ze in "Afgemeld voor MARAD".')}</p>
     <div class="row sticky"><button class="btn ghost" data-act="closeSheet">${t('Annuleren')}</button><button class="btn primary" data-act="mCreateRoute">${t('Route maken')}</button></div>`);
 }
@@ -447,7 +463,7 @@ export function refreshTemplates(force = false, onlyId = null) {
 }
 export function templateInfo(r) {
   const tp = r?.templateId && (A.state.templates || []).find((x) => x.id === r.templateId); if (!tp) return '';
-  return `<section class="card tplcard"><p>🔁 <b>${t('Terugkerend sjabloon')}</b> · ${periodLbl(tp.period)}</p><p class="muted small">${t('Elke nieuwe {p} vult de app deze route opnieuw met de taken die dan aan de beurt zijn (na het openen van de app, als MARAD ontgrendeld is). Laatst ververst: {d}.', { p: tp.period === 'month' ? t('maand') : t('week'), d: A.fmtDT(tp.lastRefresh) })}</p><div class="row"><button class="btn small" data-act="mTplRefresh" data-id="${tp.id}" ${M()?.tasks ? '' : 'disabled'}>${t('↻ Nu verversen')}</button><button class="btn small ghost" data-act="mTplStop" data-id="${tp.id}">${t('Sjabloon stoppen')}</button></div></section>`;
+  return `<section class="card tplcard"><p>🔁 <b>${t('Terugkerend sjabloon')}</b> · ${periodLbl(tp.period)}</p><p class="muted small">${t('Elke nieuwe {p} vult de app deze route opnieuw met de taken die dan aan de beurt zijn (na het openen van de app, als MARAD ontgrendeld is). Laatst ververst: {d}.', { p: periodNoun(tp.period), d: A.fmtDT(tp.lastRefresh) })}</p><div class="row"><button class="btn small" data-act="mTplRefresh" data-id="${tp.id}" ${M()?.tasks ? '' : 'disabled'}>${t('↻ Nu verversen')}</button><button class="btn small ghost" data-act="mTplStop" data-id="${tp.id}">${t('Sjabloon stoppen')}</button></div></section>`;
 }
 // ---------- versturen naar een persoon (WhatsApp) ----------
 function sortContacts(ranks) {

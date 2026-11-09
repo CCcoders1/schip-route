@@ -55,7 +55,10 @@ export function suggestions(maint, { today = todayISO(), min = 2 } = {}) {
   return res.filter((s) => { const k = s.tasks.map((x) => x.id).sort().join(); if (seen.has(k)) return false; seen.add(k); return true; });
 }
 /** Taken van een groep opnieuw opzoeken (voor terugkerende sjablonen). */
-export function findSuggestion(maint, key, opts) { return suggestions(maint, { ...opts, min: 0 }).find((s) => s.key === key) || null; }
+export function findSuggestion(maint, key, opts) {
+  if (key.startsWith('fx:')) return fixedRounds(maint, opts).rounds.find((s) => s.key === key) || null;
+  return suggestions(maint, { ...opts, min: 0 }).find((s) => s.key === key) || null;
+}
 
 /** Functies met aantallen: [{ rank, n, overdue }] gesorteerd op aantal. */
 export function rankStats(maint) {
@@ -64,11 +67,54 @@ export function rankStats(maint) {
   return [...m.values()].sort((a, b) => b.n - a.n || a.rank.localeCompare(b.rank));
 }
 
-/** Periodesleutel: week = ISO-jaar-week, maand = jjjj-mm. */
+/** Periodesleutel: week = ISO-jaar-week, 2w = ISO-jaar + blok van 2 weken, maand = jjjj-mm. */
 export function periodKey(period, d = new Date()) {
+  if (period === '2w') { const [y, w] = periodKey('week', d).split('-W'); return y + '-B' + String(Math.ceil(+w / 2)).padStart(2, '0'); }
   if (period === 'month') return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
   const x = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
   const day = x.getUTCDay() || 7; x.setUTCDate(x.getUTCDate() + 4 - day);
   const y0 = new Date(Date.UTC(x.getUTCFullYear(), 0, 1));
   return x.getUTCFullYear() + '-W' + String(Math.ceil(((x - y0) / 864e5 + 1) / 7)).padStart(2, '0');
+}
+
+// ---------- vaste rondes ----------
+// De definities (regels met trefwoorden) zitten ALLEEN in de versleutelde bundel (maint.fixedRounds),
+// zodat er geen taaknamen in de publieke code staan. Elke taak hoort bij hooguit één vaste ronde:
+// de eerste ronde (in volgorde van de definities) met een passende regel.
+export const ivCode = (iv) => (iv?.n && iv.unit ? iv.n + iv.unit[0] : '');
+const subGroup = (c) => (c?.path?.length > 1 && /^\d+ - /.test(c.path[1]) ? c.path[1] : c?.path?.[0] || '');
+const rx = (s) => (s ? new RegExp(s, 'i') : null);
+function compileRule(r) { return { iv: r.iv || null, grp: rx(r.grp), name: rx(r.name), path: rx(r.path), not: rx(r.not) }; }
+function ruleOk(r, x, c) {
+  if (r.iv && !r.iv.includes(ivCode(x.interval))) return false;
+  const path = (c?.path || []).join(' » ');
+  if (r.grp && !r.grp.test(subGroup(c))) return false;
+  if (r.name && !r.name.test(x.name)) return false;
+  if (r.path && !r.path.test(path)) return false;
+  if (r.not && r.not.test(x.name + ' » ' + path)) return false;
+  return true;
+}
+/** Venster (dagen) waarin een taak "nu aan de beurt" is voor een vaste ronde. */
+export const FIXED_WINDOW = { week: 7, '2w': 14, month: 31 };
+export function fixedDue(period, x, today = todayISO()) {
+  const st = status(x, today); if (st === 'overdue') return true;
+  if (!x.dueDate) return false;
+  return (new Date(x.dueDate) - new Date(today)) / 864e5 <= (FIXED_WINDOW[period] || 7);
+}
+/** Vaste rondes toepassen: { rounds: [suggestie…], leftovers: { week, '2w', month } }. */
+export function fixedRounds(maint, { today = todayISO() } = {}) {
+  const defs = maint?.fixedRounds; if (!defs?.length || !maint?.tasks) return { rounds: [], leftovers: null };
+  const comp = (x) => maint.components?.[x.componentId];
+  const cs = defs.map((d) => ({ d, rules: (d.rules || []).map(compileRule), tasks: [] }));
+  for (const x of maint.tasks) {
+    const c = comp(x); const hit = cs.find((r) => r.rules.some((ru) => ruleOk(ru, x, c)));
+    if (hit) hit.tasks.push(x);
+  }
+  const claimed = new Set(cs.flatMap((r) => r.tasks.map((x) => x.id)));
+  const left = (codes) => maint.tasks.filter((x) => !claimed.has(x.id) && codes.includes(ivCode(x.interval)));
+  const rounds = cs.map(({ d, tasks }) => {
+    const dates = tasks.map((x) => x.dueDate).filter(Boolean).sort();
+    return { key: 'fx:' + d.id, kind: 'fixed', fixed: d, period: d.period, ranks: d.ranks || [], tasks, due: tasks.filter((x) => fixedDue(d.period, x, today)), overdue: tasks.filter((x) => status(x, today) === 'overdue').length, nextDue: dates.find((x) => x >= today) || dates[0] || null, noLoc: tasks.filter((x) => !x.locId).length };
+  });
+  return { rounds, leftovers: { week: left(['1w']), '2w': left(['2w']), month: left(['1m']) } };
 }
