@@ -100,8 +100,8 @@ function sendView() {
       <p class="small"><b>→ ${esc(whoLabel(who))}</b></p>
       <p class="small">🧭 ${routePreview(r.steps)}</p>
       <details><summary>${t('Taken bekijken (looproute)')}</summary><ol class="plain small">${r.steps.map((x) => `<li>${esc(A.tx(x, 'title'))}</li>`).join('')}</ol></details>
-      <p class="okc small">✔ ${t('Klaargezet/gedeeld {d}', { d: A.fmtDT(s.at) })}</p>
-      <button class="btn wa big" data-act="distReshare" data-id="${esc(r.id)}">📲 ${t('Opnieuw delen')}</button></section>`;
+      ${s.via === 'app' ? (s.ackVer >= s.ver ? `<p class="okc small dstat ok">✔ ${t('Ontvangen in de app van {name} · {d}', { name: esc(s.toName || ''), d: A.fmtDT(s.ackAt) })}</p>` : `<p class="small dstat wait">📬 ${t('Geplaatst {d} – wacht tot {name} online is', { d: A.fmtDT(s.pubAt), name: esc(s.toName || '') })}</p>`) : `<p class="okc small">✔ ${t('Klaargezet/gedeeld {d}', { d: A.fmtDT(s.at) })}</p>`}
+      ${s.via === 'app' ? `<div class="row"><button class="btn" data-act="distRedeliver" data-k="${esc(k)}">🔁 ${t('Opnieuw plaatsen')}</button><button class="btn ghost small" data-act="distReshare" data-id="${esc(r.id)}">📲 WhatsApp</button></div>` : `<button class="btn wa big" data-act="distReshare" data-id="${esc(r.id)}">📲 ${t('Opnieuw delen')}</button>`}</section>`;
   }
   return h;
 }
@@ -112,12 +112,12 @@ function pickSheet(l) {
   const people = A.state.contacts.filter((c) => c.func && RANK_IDS.includes(normRank(c.func)));
   const usedRaw = [...Object.values(D().a).flatMap((m) => Object.values(m)), ...Object.values(D().sent)].filter((e) => e.rank && e.name && !people.some((c) => c.name === e.name)).map((e) => e.rank + '|' + e.name);
   const used = [...new Set(usedRaw)];
-  const pbtn = (rank, name) => `<button class="btn pbtn" data-act="distSet" data-r="${esc(rank)}" data-n="${esc(name)}">${RANK_ICON[rank]} <b>${esc(name)}</b> <small>${esc(rankLabel(rank))}</small></button>`;
-  A.openSheet(`<h2>${t('Stuur {n} taken naar…', { n })}</h2><p class="muted small">${t('De app zet de taken zelf in een slimme looproute en opent daarna het deelscherm. Er wordt niets automatisch verstuurd.')}</p>
+  const pbtn = (rank, name) => { const pc = A.LINK.pairedFor({ rank, name }); return `<button class="btn pbtn ${pc ? 'paired' : ''}" data-act="distSet" data-r="${esc(rank)}" data-n="${esc(name)}">${RANK_ICON[rank]} <b>${esc(name)}</b> <small>${esc(rankLabel(rank))}${pc ? ' · 🔗 ' + t('direct in app') : ''}</small></button>`; };
+  A.openSheet(`<h2>${t('Stuur {n} taken naar…', { n })}</h2><p class="muted small">${t('De app zet de taken zelf in een slimme looproute. Gekoppelde mensen (🔗) krijgen het lijstje direct in hun app; anders opent het deelscherm.')}</p>
     ${people.length || used.length ? `<div class="flbl">${t('Persoon')}</div><div class="pgrid">${people.map((c) => pbtn(normRank(c.func), c.name)).join('')}${used.map((k) => pbtn(...k.split('|'))).join('')}</div>` : ''}
     <div class="flbl">${t('Rang')}</div><label class="small">${t('Naam erbij (optioneel)')}<input id="dName" autocomplete="off" autocapitalize="words" placeholder="${t('bijv. voornaam')}" value=""></label>
     <div class="rankgrid compact">${RANK_IDS.map((r) => `<button class="rankcard" data-act="distSet" data-r="${esc(r)}"><span class="ri">${RANK_ICON[r]}</span><b>${esc(rankLabel(r))}</b></button>`).join('')}</div>
-    <div class="row sticky"><button class="btn ghost" data-act="closeSheet">${t('Annuleren')}</button></div>`, { dist: true });
+    <div class="row sticky"><button class="btn ghost" data-act="pairSheet">🔗 ${t('Iemand koppelen')}</button><button class="btn ghost" data-act="closeSheet">${t('Annuleren')}</button></div>`, { dist: true });
 }
 
 // ---------- versturen ----------
@@ -139,7 +139,16 @@ function sendSelection(rank, name) {
   const i = A.state.routes.findIndex((x) => x.id === id); if (i >= 0) A.state.routes[i] = r; else A.state.routes.push(r);
   D().sent[key] = { at, n: r.steps.length, routeId: id, rank, name: who.name, list: l.key, listName: l.name };
   D().sel[l.key] = [];
-  A.save(); A.closeSheet(); A.render(); A.openShare(r);
+  const c = A.LINK.pairedFor(who);
+  if (c) {
+    // gekoppeld: direct in zijn app plaatsen (via de outbox, ook offline) – geen WhatsApp nodig
+    if (!r.intendedName) r.intendedName = c.name;
+    A.save(); A.closeSheet(); A.render(); A.LINK.deliver(r, c, key);
+    return;
+  }
+  D().sent[key].via = 'share';
+  A.save(); A.closeSheet(); A.render();
+  A.openShare(r).then(() => { const h = document.querySelector('#sheet .sheet-card h2'); h?.insertAdjacentHTML('afterend', `<p class="infobox small dpairhint">🔗 ${t('{name} is nog niet gekoppeld. Koppel één keer (Voortgang → Iemand koppelen), dan komen lijstjes zonder WhatsApp in zijn app.', { name: esc(whoShort(who)) })}</p>`); });
 }
 
 export const actions = {

@@ -3,12 +3,13 @@ import { STRATEGIES, orderSteps } from './planner.js';
 import { routePackage, buildShareLink, readHashPayload, reportPackage } from './share.js';
 import { initOil } from './oil.js';
 import { initDist } from './dist.js';
+import { initLink } from './link.js';
 import { initMaint } from './maint.js';
 import { shipSVG, svgPointToLoc, VIEWS } from './shipmap.js';
 import { t, tx, setTx, getLang, setLang, LANGS, LOCALES } from './i18n.js';
 import { RANK_IDS, RANK_ICON, normRank, rankLabel } from './ranks.js';
 
-const APP_VERSION = '1.11.0';
+const APP_VERSION = '1.12.0';
 const TEST = self.__SRTEST || {}; // alleen tests: { noSplash, noProfile }
 const OB = self.OutboxCore;
 const $ = (s, el = document) => el.querySelector(s);
@@ -20,7 +21,7 @@ const fmtDT = (iso) => iso ? new Date(iso).toLocaleString(LOCALES[getLang()], { 
 const plural = (n, a, b) => `${n} ${n === 1 ? a : b}`;
 // Modus: 'beheer' (manager: alles) of 'bemanning' (crew: ontvangen routes, ronde, vragen, observaties, outbox).
 const isCrew = () => state.settings.mode === 'bemanning';
-const CREW_TABS = ['routes', 'meer'];
+const CREW_TABS = ['routes', 'meer', 'koppelen'];
 const myRank = () => normRank(state.settings.myRank) || 'Engineer';
 const needsProfile = () => !String(state.settings.userName || '').trim();
 const BEHEER_TABS = ['vandaag', 'onderhoud', 'olie', 'routes', 'meldingen'];
@@ -103,14 +104,14 @@ function render() {
   if (isCrew()) view.routeId = null;
   document.body.classList.toggle('crew', isCrew());
   $$('#nav button').forEach((b) => { b.classList.toggle('on', b.dataset.tab === view.tab); b.hidden = isCrew() || !BEHEER_TABS.includes(b.dataset.tab); });
-  if (view.tab === 'rangen' || view.tab === 'verdelen') $$('#nav button').forEach((b) => b.classList.toggle('on', b.dataset.tab === 'vandaag'));
+  if (['rangen', 'verdelen', 'voortgang'].includes(view.tab)) $$('#nav button').forEach((b) => b.classList.toggle('on', b.dataset.tab === 'vandaag'));
   const NAVL = { olie: t('Olie'), vandaag: t('Vandaag'), meldingen: t('Meldingen'), routes: isCrew() ? t('Mijn routes') : t('Rondes'), onderhoud: t('Onderhoud'), kaart: t('Kaart'), locaties: t('Locaties'), historie: t('Historie'), meer: t('Meer') };
   $$('#nav button').forEach((b) => { b.lastChild.textContent = NAVL[b.dataset.tab]; });
   const nb = $('#nav button[data-tab=meldingen]'); const un = isCrew() ? 0 : unseenCount() + unseenMsgs();
   let bd = nb.querySelector('.nbadge'); if (!bd) { bd = document.createElement('b'); bd.className = 'nbadge'; nb.prepend(bd); }
   bd.textContent = un > 99 ? '99+' : un; bd.hidden = !un; nb.setAttribute('aria-label', NAVL.meldingen + (un ? ' – ' + t('{n} ongelezen', { n: un }) : ''));
   const fn = {
-    vandaag: viewToday, meldingen: viewMeldingen, olie: () => OIL.view(), rangen: viewRanks, verdelen: () => DIST.view(),
+    vandaag: viewToday, meldingen: viewMeldingen, olie: () => OIL.view(), rangen: viewRanks, verdelen: () => DIST.view(), voortgang: () => LINK.progressView(), koppelen: () => LINK.pairView(),
     routes: isCrew() ? viewCrewRoutes : view.routeId ? viewRoute : viewRoutes,
     onderhoud: MT.view,
     kaart: viewMap, locaties: viewLocations,
@@ -155,8 +156,9 @@ function viewToday() {
   const un = unseenMsgs() + unseenCount();
   if (un) h += `<button class="card tap melbanner" data-act="goTab" data-v="meldingen">🔔 <b>${t('{n} ongelezen meldingen', { n: un })}</b><small>${t('vragen, observaties, Niet OK en aftekeningen')}</small></button>`;
   if (!state.maint?.tasks) h += `<section class="card"><h3>🔐 ${t('Onderhoud ontgrendelen')}</h3><p class="muted small">${t('Ontgrendel de MARAD-gegevens om de vaste rondes en te-late taken te zien.')}</p><button class="btn primary big" data-act="mUnlockSheet">${t('🔓 Ontgrendelen')}</button></section>`;
+  if (!state.maint?.tasks) h += `<button class="card tap pairbanner" data-act="goPair">📲 <b>${t('Bemanning?')}</b><small>${t('Koppel dit toestel met Beheer – dan komen lijstjes vanzelf binnen')}</small></button>`;
   else h += MT.todayHTML() + `<div class="row"><button class="btn" data-act="mWeekGo">${t('📅 Weekoverzicht')}</button><button class="btn" data-act="goSug">${t('💡 Alle vaste rondes')}</button></div>`;
-  h += `<button class="card tap rankbanner distbanner" data-act="goDist">📋 <b>${t('Taken verdelen')}</b><small>${t('Lijst aantikken, per taak kiezen naar wie hij gaat, daarna versturen')}</small></button>`;
+  h += `<button class="card tap rankbanner distbanner" data-act="goDist">📋 <b>${t('Taken verdelen')}</b><small>${t('Taken aantikken (te laat eerst) en naar iemand sturen')}</small></button>` + LINK.todayBanner();
   h += `<button class="card tap rankbanner" data-act="goRanks">🎖 <b>${t('Rangen')}</b><small>${t('Pagina per rang: vaste rondes klaarzetten en delen')}</small></button>`;
   const rs = state.routes.filter((r) => !r.templateId).slice(0, 5);
   if (rs.length) h += `<h3 class="sec">🧭 ${t('Eigen rondes')}</h3><div class="list compact">${rs.map((r) => `<article class="card route mini"><div class="tap" data-act="openRoute" data-id="${r.id}"><b>${esc(tx(r, 'name'))}</b><small>${plural(r.steps.length, t('taak'), t('taken'))}</small></div><button class="btn ok" data-act="startRun" data-id="${r.id}" ${r.steps.length ? '' : 'disabled'}>▶</button></article>`).join('')}</div><button class="btn small ghost" data-act="goTab" data-v="routes">${t('Alle rondes →')}</button>`;
@@ -168,7 +170,7 @@ function appMenu() {
     ${it('mWeekGo', '', '📅', t('Weekoverzicht'))}${it('goMaradDone', '', '⬇', t('Afgemeld voor MARAD (CSV)'))}
     ${it('goTab', 'kaart', '🚢', t('Kaart'))}${it('goTab', 'locaties', '📍', t('Locaties'))}
     ${it('goTab', 'historie', '📋', t('Historie (eigen rondes)'))}${it('newObs', '', '👁', t('Eigen observatie'))}
-    ${it('goDist', '', '📋', t('Taken verdelen'))}${it('goRanks', '', '🎖', t('Rangen'))}${it('profileEdit', '', '👤', t('Profiel'))}
+    ${it('goDist', '', '📋', t('Taken verdelen'))}${it('goProgress', '', '📊', t('Voortgang'))}${it('pairSheet', '', '🔗', t('Iemand koppelen'))}${state.maint ? '' : it('goPair', '', '📲', t('Koppelen met Beheer'))}${it('goRanks', '', '🎖', t('Rangen'))}${it('profileEdit', '', '👤', t('Profiel'))}
     ${it('openOutbox', '', '📤', t('Outbox'))}${it('langMenu', '', '🌐', t('Taal · Language · Bahasa'))}
     ${it('goTab', 'meer', '⚙️', t('Instellingen, personen, PIN, modus'))}${state.maint ? it('mLock', '', '🔒', t('Vergrendelen')) : it('mUnlockSheet', '', '🔓', t('Ontgrendelen'))}
   </div><p class="muted small">${t('Versie')} ${APP_VERSION}</p>`, { menu: true });
@@ -229,7 +231,7 @@ function viewRoutes() {
   let h = header(t('Rondes')) + `<p class="shipsub">🚢 ${esc(state.shipName)}</p>`;
   if (ar) h += `<div class="card resume"><b>${t('Ronde bezig: {name}', { name: esc(tx(ar.route, 'name')) })}</b><p>${t('Stap {a} van {b} · gestart {c}', { a: Math.min(ar.idx + 1, ar.route.steps.length), b: ar.route.steps.length, c: fmtDT(ar.startedAt) })}</p><div class="row"><button class="btn ok big" data-act="resumeRun">${t('▶ Doorgaan')}</button><button class="btn ghost" data-act="abortRun">${t('Afbreken')}</button></div></div>`;
   h += installBanner();
-  h += `<button class="card tap rankbanner distbanner" data-act="goDist">📋 <b>${t('Taken verdelen')}</b><small>${t('Lijst aantikken, per taak kiezen naar wie hij gaat, daarna versturen')}</small></button>`;
+  h += `<button class="card tap rankbanner distbanner" data-act="goDist">📋 <b>${t('Taken verdelen')}</b><small>${t('Taken aantikken (te laat eerst) en naar iemand sturen')}</small></button>` + LINK.todayBanner();
   const ns = state.maint ? MT.sugCount() : 0;
   if (ns) h += `<button class="card tap sugbanner" data-act="goSug">💡 <b>${t('{n} voorgestelde routes', { n: ns })}</b><small>${t('op basis van functie en interval (Onderhoud → Voorstel)')}</small></button>`;
   h += `<div class="list">`;
@@ -685,7 +687,7 @@ async function startRun(id) {
   const locs = {};
   for (const s of r.steps) { const l = loc(s.locationId); if (l) locs[l.id] = { ...clone(l), deckName: deckName(l.deck) }; }
   state.activeRun = { id: 'run-' + rid(), routeId: r.id, route: clone(r), locs, idx: 0, results: [], values: {}, startedAt: new Date().toISOString(), by: state.settings.userName || '' };
-  save(); openRun();
+  save(); openRun(); LINK.progressEvent('started');
 }
 async function enterRunChrome() {
   document.body.classList.add('running');
@@ -788,6 +790,7 @@ function recordStep(status, note = '') {
   ar.results = ar.results.filter((x) => x.stepId !== s.id);
   ar.results.push({ stepId: s.id, marad: s.marad || null, title: tx(s, 'title'), titleNl: s.title, locNl: l.name, locationId: s.locationId, locName: tx(l, 'name'), deckName: tx(deck(l.deck), 'name') || l.deckName || '', status, at: new Date().toISOString(), values, fields: clone(s.fields || []), outOfRange: (s.fields || []).filter((f) => isOOR(f, values[f.id])).map((f) => f.id), note });
   ar.idx++; save(); renderRun();
+  if (state.activeRun) LINK.progressEvent('step');
 }
 function renderRunDone() {
   const ar = state.activeRun;
@@ -819,7 +822,7 @@ const actions = {
   pfCancel: () => { closeProfile(); PF = null; },
   iosContinue: () => { const nx = sheetCtx?.next; closeSheet(); nx?.(); },
   setLang: (a) => { const L = a.dataset.v; if (L === getLang()) return closeSheet(); state.settings.lang = L; save(); setLang(L); location.reload(); },
-  closeSheet, back: () => (view.tab === 'verdelen' ? (view.dist ? go('verdelen', { dist: null }) : go('vandaag')) : view.tab === 'rangen' ? (view.rank ? go('rangen', { rank: null }) : go('vandaag')) : go(view.tab)),
+  closeSheet, back: () => (view.tab === 'voortgang' ? go('vandaag') : view.tab === 'koppelen' ? go(isCrew() ? 'meer' : 'vandaag') : view.tab === 'verdelen' ? (view.dist ? go('verdelen', { dist: null }) : go('vandaag')) : view.tab === 'rangen' ? (view.rank ? go('rangen', { rank: null }) : go('vandaag')) : go(view.tab)),
   install: async () => { if (!deferredInstall) return; deferredInstall.prompt(); await deferredInstall.userChoice; deferredInstall = null; render(); },
   hideInstall: () => { state.settings.hideInstall = true; save(); render(); },
   showInstall: () => { state.settings.hideInstall = false; save(); go('routes'); },
@@ -876,7 +879,7 @@ const actions = {
   startRun: (a) => startRun(a.dataset.id),
   resumeRun: () => openRun(),
   abortRun: () => { if (!confirm(t('Lopende ronde afbreken? Ingevoerde gegevens gaan verloren.'))) return; state.activeRun = null; save(); render(); },
-  runPause: () => { closeRun(); toast(t('Ronde gepauzeerd – ga verder via Routes')); },
+  runPause: () => { LINK.progressEvent('paused'); closeRun(); toast(t('Ronde gepauzeerd – ga verder via Routes')); },
   runClose: () => { closeRun(); },
   runMapToggle: () => { const ar = state.activeRun; if (!ar) return; ar.mapView = ar.mapView === 'top' ? 'side' : 'top'; save(); const s = ar.route.steps[ar.idx]; $('.run-map').innerHTML = runMap(ar, curLoc(ar, s)); },
   runPick: (a) => {
@@ -1187,6 +1190,13 @@ async function queueItem(item) {
   if (navigator.onLine) return flushNow(false, item.id);
   toast(t('📴 Bewaard in outbox – wordt verstuurd zodra er internet is'), 3500);
 }
+/** Meerdere items stil in de outbox (koppelen/voortgang/lijstjes in delen) en één keer versturen. */
+async function queueQuiet(items) {
+  for (const it of items) { try { await OB.put(it); } catch (e) { console.warn('outbox', e); } }
+  await refreshOutbox();
+  try { const reg = await navigator.serviceWorker?.ready; await reg?.sync?.register('outbox'); } catch { /* geen Background Sync */ }
+  if (navigator.onLine) { try { await OB.flush(); } catch (e) { console.warn(e); } await refreshOutbox(); }
+}
 async function flushNow(manual = false, justId = null) {
   if (!navigator.onLine) { if (manual) toast(t('Geen internet – berichten blijven in de outbox')); return; }
   const r = await OB.flush();
@@ -1323,7 +1333,7 @@ function viewCrewRoutes() {
   const forMe = recv.filter((r) => (!r.intendedRank && !r.intendedName) || isForMe(r, rank)).sort((a, b) => isForMe(b, rank) - isForMe(a, rank));
   const other = recv.filter((r) => !forMe.includes(r));
   h += `<div class="list">`;
-  if (!forMe.length) h += `<div class="emptystate"><p class="big">📭</p><p><b>${t('Nog geen ronde ontvangen.')}</b></p><p class="muted">${t('Open de link die je via WhatsApp krijgt.')}</p></div>`;
+  if (!forMe.length) h += `<div class="emptystate"><p class="big">📭</p><p><b>${t('Nog geen ronde ontvangen.')}</b></p><p class="muted">${t('Open de link die je via WhatsApp krijgt.')}</p>${state.settings.inboxLastAt ? '' : `<button class="btn primary big" data-act="goPair">🔗 ${t('Koppelen met Beheer')}</button><p class="muted small">${t('Na koppelen komen lijstjes vanzelf in je app – zonder WhatsApp.')}</p>`}</div>`;
   h += forMe.map((r) => crewRouteCard(r, rank)).join('') + `</div>`;
   if (trainee) h += `<p class="infobox">🎓 ${t('Je begeleider stuurt je een ronde via WhatsApp. Open die link; de ronde verschijnt dan hier.')}</p>`;
   if (other.length) h += `<details class="card otherranks"><summary>${t('Voor andere rangen ({n})', { n: other.length })}</summary><div class="list">${other.map((r) => crewRouteCard(r, rank)).join('')}</div></details>`;
@@ -1416,6 +1426,7 @@ function viewCrewMore() {
   h += `<section class="card"><h2>${t('🌐 Taal · Language · Bahasa')}</h2><div class="seg langseg">${Object.entries(LANGS).map(([k, v]) => `<button class="${k === getLang() ? 'on' : ''}" data-act="setLang" data-v="${k}">${v.flag} ${k.toUpperCase()}</button>`).join('')}</div></section>`;
   h += `<section class="card"><h2>${t('Instellingen')}</h2>${profileRow()}
     ${tog('bigText', t('Extra grote tekst'))}${tog('vibrate', t('Trillen bij volgende stap'))}${tog('speak', t('Instructie uitspreken (spraak)'))}${tog('wakeLock', t('Scherm aan houden tijdens ronde'))}${fsToggle(tog)}</section>`;
+  h += `<section class="card"><h2>🔗 ${t('Koppelen met Beheer')}</h2><p class="muted small">${t('Eén keer koppelen: daarna komen lijstjes vanzelf in je app – zonder WhatsApp.')}</p><button class="btn" data-act="goPair">🔗 ${t('Koppelcode tonen')}</button></section>`;
   h += crewRunsHTML();
   h += `<section class="card"><h2>${t('📤 Outbox')}</h2><p class="muted small">${t('Vragen, observaties en rapporten gaan naar kanaal:')} <b>${esc(st.ntfyTopic || '—')}</b></p><div class="row"><button class="btn" data-act="openOutbox">${t('📤 Outbox openen')}</button><button class="btn" data-act="newObs">${t('👁 Extra observatie')}</button></div></section>`;
   h += modeCard();
@@ -1479,6 +1490,8 @@ async function sendReport(run) {
   if (!run.reportQueuedAt && topic) {
     const m = reportNtfyText(run, link);
     await queueItem({ id: 'm-' + rid(), kind: 'rapport', createdAt: new Date().toISOString(), by: run.by || '', text: '', title: m.title, message: m.message, priority: 3, tags: ['clipboard', 'white_check_mark'], click: link.length < 3500 ? link : undefined, topic, server, status: 'pending', photos: [{ name: fname, blob: new Blob([json], { type: 'application/json' }), title: '📎 ' + m.title, tags: 'paperclip' }] });
+    // grote rapporten passen niet in één ntfy-bericht (link > 3500 tekens): het rapport zelf in delen meesturen
+    if (link.length >= 3500) await queueQuiet(await LINK.chunkItems(pkg, { kind: 'report', aid: run.id, ver: 1, topic, server, title: '📨 ' + run.routeName, by: run.by || '' }));
     run.reportQueuedAt = new Date().toISOString(); save();
   }
   // 2) zelf delen via WhatsApp / deelmenu
@@ -1563,6 +1576,7 @@ async function pollNtfy(manual = false) {
     const own = new Set((await OB.all().catch(() => [])).map((x) => x.title));
     let nMsg = 0;
     for (const m of msgs) {
+      if (await LINK.handleMgrMsg(m)) continue;
       const kind = ntfyKind(m);
       if (kind !== 'rapport') {
         if (kind === 'test' || own.has(m.title) || inbox().some((x) => x.id === m.id)) continue;
@@ -1638,7 +1652,12 @@ Object.assign(actions, {
   iosUseHere: () => { const { pkg } = sheetCtx.iosLink; closeSheet(); if (pkg.kind === 'route') importSheet(pkg); else autoImportReport(pkg, 'link'); },
 });
 let lastPoll = 0;
-function maybePoll() { if (!isCrew() && navigator.onLine && Date.now() - lastPoll > 20000) { lastPoll = Date.now(); pollNtfy(false); } }
+function maybePoll() {
+  if (!navigator.onLine || Date.now() - lastPoll < 20000) return;
+  lastPoll = Date.now();
+  if (isCrew()) LINK.pollInbox(false); else { pollNtfy(false); LINK.retry(); }
+}
+setInterval(() => { if (document.visibilityState === 'visible') maybePoll(); }, 120000);
 Object.assign(actions, {
   goTab: (a) => { closeSheet(); go(a.dataset.v); if (a.dataset.v === 'meldingen') maybePoll(); },
   appMenu: () => appMenu(),
@@ -1656,7 +1675,9 @@ const MT = initMaint({ oilApply: (run) => OIL.applyRun(run), legacyMaint, state,
 Object.assign(actions, MT.actions);
 const OIL = initOil({ askProfile: (fn) => askProfile(fn), state, save, rid, esc, header, openSheet, closeSheet, toast, render: () => render(), renderRun: () => renderRun(), shareFile, csvCell, fmtDT, tx, isCrew, copyText, persist: () => MT.persist(), openShare: (r) => openShare(r), sendOil: (ev, sum) => sendOil(ev, sum) });
 Object.assign(actions, OIL.actions);
-const DIST = initDist({ state, save, esc, header, openSheet, closeSheet, toast, render: () => render(), go: (...x) => go(...x), view: () => view, MT, rid, fmtDT, openShare: (r) => openShare(r), tx: (o, k) => tx(o, k), loc: (id) => loc(id) });
+const LINK = initLink({ state, save, esc, header, openSheet, closeSheet, toast, render: () => render(), go: (...x) => go(...x), view: () => view, rid, fmtDT, isCrew, copyText, queueQuiet, importPackage: (p, c) => importPackage(p, c), autoImportReport: (...x) => autoImportReport(...x), openShare: (r) => openShare(r) });
+Object.assign(actions, LINK.actions);
+const DIST = initDist({ LINK, state, save, esc, header, openSheet, closeSheet, toast, render: () => render(), go: (...x) => go(...x), view: () => view, MT, rid, fmtDT, openShare: (r) => openShare(r), tx: (o, k) => tx(o, k), loc: (id) => loc(id) });
 Object.assign(actions, DIST.actions);
 
 // ---------- start ----------
@@ -1692,10 +1713,10 @@ if (document.documentElement.classList.contains('splash')) {
   $('#splash')?.addEventListener('click', endSplash);
   addEventListener('keydown', function k(e) { if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') { removeEventListener('keydown', k); endSplash(); } });
 } else setTimeout(intro, 600);
-if (!isCrew()) setTimeout(maybePoll, 1500);
+setTimeout(maybePoll, 1500);
 if (state.activeRun && state.settings.resumeOnStart && !location.hash.includes('route=')) { $('#run').hidden = false; document.body.classList.add('running'); renderRun(true); }
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   navigator.serviceWorker.register('./sw.js').then(() => (window.__swRegistered = true)).catch((e) => console.warn('SW', e));
 }
 refreshOutbox().then(() => flushNow());
-window.__app = { state, save, view: () => view, flushNow, refreshOutbox, MT, pollNtfy, isIOS, isStandalone, openProfile };
+window.__app = { state, save, view: () => view, flushNow, refreshOutbox, MT, pollNtfy, LINK, isIOS, isStandalone, openProfile };

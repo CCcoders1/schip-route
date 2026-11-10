@@ -472,3 +472,13 @@ html:has(.dtasks, .dlist, .dgroup) header.top h1 { font-size: 1.3rem; line-heigh
 .dprev { margin: 0 0 6px; color: var(--muted); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .dfoot .btn[disabled] { opacity: .45; }
 .dtasks { padding-bottom: calc(150px + env(safe-area-inset-bottom)); }
+/* ---------- v1.12 koppelen + voortgang ---------- */
+.paircode { width: 100%; box-sizing: border-box; font-family: ui-monospace, Menlo, monospace; font-size: .8rem; word-break: break-all; background: var(--chip); border: 1px dashed var(--line); border-radius: 12px; padding: 10px; color: var(--fg); }
+#pairIn { width: 100%; box-sizing: border-box; font-family: ui-monospace, Menlo, monospace; font-size: .85rem; }
+.pbtn.paired { border-color: var(--ok); } .pbtn.paired small { color: var(--ok); }
+.pbusy, .ppend, .pperson { display: flex; flex-direction: column; gap: 4px; }
+.pbar { display: block; height: 8px; border-radius: 4px; background: var(--chip); overflow: hidden; } .pbar i { display: block; height: 100%; background: var(--acc); }
+.prun summary { display: flex; flex-direction: column; gap: 2px; cursor: pointer; list-style: none; } .prun summary::-webkit-details-marker { display: none; }
+.prun summary small { color: var(--muted); } .prun ol { margin: 8px 0 0; }
+.pday { margin-top: 18px; } .dstat.wait { color: #a07800; }
+html:has(#pairCode, .pday, .pbusy, .pperson, [data-act=pairPaste]) header.top h1 { font-size: 1rem; line-height: 1.2; hyphens: auto; -webkit-hyphens: auto; }

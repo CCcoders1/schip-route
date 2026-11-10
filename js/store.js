@@ -29,6 +29,12 @@ export function randomTopic() {
 export const state = load();
 if (!state.settings.ntfyTopic) { state.settings.ntfyTopic = randomTopic(); state.settings.ntfyTopicAuto = true; }
 if (!state.settings.ntfyServer) state.settings.ntfyServer = 'https://ntfy.sh';
+// v1.12: eigen inbox per toestel (lijstjes ontvangen). Wordt NOOIT overschreven door het meldingskanaal van Beheer.
+const _newId = !state.settings.inboxTopic || !state.settings.deviceId;
+if (!state.settings.inboxTopic) state.settings.inboxTopic = randomTopic();
+if (!state.settings.inboxServer) state.settings.inboxServer = 'https://ntfy.sh';
+if (!state.settings.deviceId) state.settings.deviceId = 'd-' + randomTopic().split('-')[1];
+if (_newId) queueMicrotask(() => save());
 export function save() {
   // MARAD-gegevens (state.maint) nooit in localStorage; die bewaart maint.js in IndexedDB.
   try { localStorage.setItem(KEY, JSON.stringify(state, function (k, v) { return this === state && k === 'maint' ? undefined : v; })); }
