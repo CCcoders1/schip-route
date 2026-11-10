@@ -9,7 +9,7 @@ import { shipSVG, svgPointToLoc, VIEWS } from './shipmap.js';
 import { t, tx, setTx, getLang, setLang, LANGS, LOCALES } from './i18n.js';
 import { RANK_IDS, RANK_ICON, normRank, rankLabel } from './ranks.js';
 
-const APP_VERSION = '1.13.0';
+const APP_VERSION = '1.14.0';
 const TEST = self.__SRTEST || {}; // alleen tests: { noSplash, noProfile }
 const OB = self.OutboxCore;
 const $ = (s, el = document) => el.querySelector(s);
@@ -157,7 +157,7 @@ function viewToday() {
   if (un) h += `<button class="card tap melbanner" data-act="goTab" data-v="meldingen">🔔 <b>${t('{n} ongelezen meldingen', { n: un })}</b><small>${t('vragen, observaties, Niet OK en aftekeningen')}</small></button>`;
   if (!state.maint?.tasks) h += `<section class="card"><h3>🔐 ${t('Onderhoud ontgrendelen')}</h3><p class="muted small">${t('Ontgrendel de MARAD-gegevens om de vaste rondes en te-late taken te zien.')}</p><button class="btn primary big" data-act="mUnlockSheet">${t('🔓 Ontgrendelen')}</button></section>`;
   if (!state.maint?.tasks) h += `<button class="card tap pairbanner" data-act="goPair">📲 <b>${t('Bemanning?')}</b><small>${t('Koppel dit toestel met Beheer – dan komen lijstjes vanzelf binnen')}</small></button>`;
-  else h += MT.todayHTML() + `<div class="row"><button class="btn" data-act="mWeekGo">${t('📅 Weekoverzicht')}</button><button class="btn" data-act="goSug">${t('💡 Alle vaste rondes')}</button></div>`;
+  else h += MT.todayHTML({ sent: Object.values(state.dist?.sent || {}), busy: LINK.busyList(), doneAfter: LINK.doneAfter }) + `<div class="row"><button class="btn" data-act="mWeekGo">${t('📅 Weekoverzicht')}</button><button class="btn" data-act="goSug">${t('💡 Alle vaste rondes')}</button></div>`;
   h += `<button class="card tap rankbanner distbanner" data-act="goDist">📋 <b>${t('Taken verdelen')}</b><small>${t('Taken aantikken (te laat eerst) en naar iemand sturen')}</small></button>` + LINK.todayBanner();
   h += `<button class="card tap rankbanner" data-act="goRanks">🎖 <b>${t('Rangen')}</b><small>${t('Pagina per rang: vaste rondes klaarzetten en delen')}</small></button>`;
   const rs = state.routes.filter((r) => !r.templateId).slice(0, 5);
@@ -1609,7 +1609,7 @@ Object.assign(actions, {
 });
 
 // ---------- onderhoud (MARAD) ----------
-const MT = initMaint({ oilApply: (run) => OIL.applyRun(run), legacyMaint, state, save, rid, esc, header, openSheet, closeSheet, toast, render: () => render(), go: (...x) => go(...x), shareFile, csvCell, fmtDT, plural, locSelect, loc, tx, STRATEGIES, orderSteps, buildShareLink, routePackage, deliverTo: (r, c) => deliverTo(r, c) });
+const MT = initMaint({ oilApply: (run) => OIL.applyRun(run), isCrew: () => isCrew(), legacyMaint, state, save, rid, esc, header, openSheet, closeSheet, toast, render: () => render(), go: (...x) => go(...x), shareFile, csvCell, fmtDT, plural, locSelect, loc, tx, STRATEGIES, orderSteps, buildShareLink, routePackage, deliverTo: (r, c) => deliverTo(r, c) });
 Object.assign(actions, MT.actions);
 const OIL = initOil({ askProfile: (fn) => askProfile(fn), state, save, rid, esc, header, openSheet, closeSheet, toast, render: () => render(), renderRun: () => renderRun(), shareFile, csvCell, fmtDT, tx, isCrew, copyText, persist: () => MT.persist(), sendRouteSheet: (r) => sendRouteSheet(r), sendOil: (ev, sum) => sendOil(ev, sum) });
 Object.assign(actions, OIL.actions);

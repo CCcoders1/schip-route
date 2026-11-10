@@ -57,7 +57,7 @@ export function initMaint(api) {
   $f('#fileMarad')?.addEventListener('change', async (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) readFile(f); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.id === 'mPw') { e.preventDefault(); actions.mUnlock(); } });
   if (A.legacyMaint) migrateLegacy(A.legacyMaint);
-  return { distLists, distRoute, tacticalOrder, byUrgency, rankOverview, rankRoundsHTML, view, actions, applyRun, applyPending, ensureMaint, runExtra, maradFields, persist, refreshTemplates, rankNames, templateInfo, sugCount, todayHTML, startFixed, needsReunlock, slimDefault, weekStats };
+  return { distLists, distRoute, tacticalOrder, byUrgency, rankOverview, rankRoundsHTML, view, actions, applyRun, applyPending, ensureMaint, runExtra, maradFields, persist, refreshTemplates, rankNames, templateInfo, sugCount, todayHTML, weekBoard, startFixed, needsReunlock, slimDefault, weekStats };
 }
 const $f = (s) => document.querySelector(s);
 
@@ -438,31 +438,99 @@ export function rankRoundsHTML(rank, { crew = false } = {}) {
 
 // ---------- Vandaag (startscherm Beheer) ----------
 const soonOf = (sg) => sg.tasks.filter((x) => ['overdue', 'week'].includes(status(x)));
-export function todayHTML() {
-  const m = M(); if (!m?.tasks) return '';
+export function todayHTML(opts = {}) {
+  const m = M(); if (!m?.tasks || A.isCrew?.()) return '';
   allSug();
   let h = '';
   if (needsReunlock()) h += `<div class="warnbox">${t('Er zijn bijgewerkte onderhoudsgegevens (vaste rondes en locaties). Ontgrendel één keer opnieuw om ze te laden – je afmeldingen blijven bewaard.')}<div class="row"><button class="btn primary small" data-act="mUnlockSheet">${t('🔐 Ontgrendelen')}</button></div></div>`;
-  const my = myRank();
-  const rounds = FX.rounds.map((sg) => ({ sg, soon: soonOf(sg), od: sg.tasks.filter((x) => status(x) === 'overdue').length, mine: sg.ranks.includes(my) }))
-    .filter((r) => r.soon.length).sort((a, b) => b.mine - a.mine || b.od - a.od || b.soon.length - a.soon.length);
-  h += `<h3 class="sec">📌 ${t('Vaste rondes deze week')} <small>(${rounds.length})</small></h3>`;
-  if (!FX.rounds.length) h += `<p class="muted small">${t('Geen vaste rondes in deze gegevens.')}</p>`;
-  else if (!rounds.length) h += `<p class="okbox">${t('✔ Geen vaste rondes aan de beurt deze week.')}</p>`;
-  for (const { sg, soon, od, mine } of rounds) {
-    const tp = tplFor(sg.key);
-    h += `<article class="card today k-fixed ${od ? 'has-od' : ''}" data-k="${A.esc(sg.key)}"><div class="thead"><h3>${kIcon(sg)} ${A.esc(sugName(sg))}${mine ? ' <span title="' + t('Mijn functie') + '">⭐</span>' : ''}</h3><p class="muted small">👤 ${A.esc(rankLabels(sg.ranks))} · ${periodLbl(sg.period)}${tp ? ' · 🔁' : ''}</p></div>
-      <p class="tcounts">${od ? `<span class="tag red">${t('{n} te laat', { n: od })}</span> ` : ''}<span class="tag orange">${t('{n} deze week', { n: soon.length - od })}</span> <small class="muted">${t('van {n} taken', { n: sg.tasks.length })}</small></p>
-      <button class="btn ok huge" data-act="tdStart" data-k="${A.esc(sg.key)}">${t('▶ Start ronde')} <small>(${soon.length})</small></button>
-      <div class="row"><button class="btn small" data-act="sgSend" data-k="${A.esc(sg.key)}">${t('📲 Stuur naar…')}</button><button class="btn small ghost" data-act="sgShow" data-k="${A.esc(sg.key)}">${t('☰ Taken bekijken')}</button></div></article>`;
+  return h + boardHTML(opts);
+}
+// ---------- v1.14: weekbord (Deze week + Achterstallig pakket) ----------
+/** Datum (jjjj-mm-dd) in Europe/Amsterdam – de weekgrens van het bord. */
+export const amsToday = (d = new Date()) => { try { return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Amsterdam', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d); } catch { return todayISO(d); } };
+/** ISO-week (ma–zo) rond een datum: { from, to, wk } */
+function isoWeek(day) {
+  const d = new Date(day + 'T12:00:00Z'); const wd = d.getUTCDay() || 7;
+  const mon = new Date(d); mon.setUTCDate(d.getUTCDate() - wd + 1); const sun = new Date(mon); sun.setUTCDate(mon.getUTCDate() + 6);
+  return { from: isoD(mon), to: isoD(sun), wk: periodKey('week', new Date(day + 'T12:00:00')).split('-W')[1] };
+}
+/** Grootte van een hap werk: kort ≤ 10 · middag 11–25 · volle dag 26+ open taken. */
+const sizeOf = (n) => (n <= 10 ? 'kort' : n <= 25 ? 'middag' : 'dag');
+const SIZE = () => ({ kort: [t('kort'), 1], middag: [t('middag'), 2], dag: [t('volle dag'), 3] });
+const PORD = { week: 0, '2w': 1, month: 2 };
+/** Bord-indeling op basis van de bestaande vervaldatums (MARAD + afmeldingen in de app).
+ *  - open = te laat, of vervaldatum t/m zondag van deze week · klaar = deze week afgemeld en niet opnieuw open
+ *  - wekelijks: altijd Deze week (restjes van vorige week tellen mee op de kaart, niet in het pakket)
+ *  - 2-wekelijks / maandelijks: Deze week als er een taak deze week vervalt (of de ronde deze week is afgerond);
+ *    alleen nog taken van vóór deze week open → Achterstallig pakket. */
+export function weekBoard(today = amsToday()) {
+  const m = M(); if (!m?.tasks) return null;
+  allSug();
+  const w = isoWeek(today); const rs = rankSel();
+  const doneIds = new Set(m.signoffs.filter((x) => x.doneDate >= w.from && x.doneDate <= w.to).map((x) => x.taskId));
+  const isOpen = (x) => { const st = status(x, today); return st === 'overdue' || (!isHours(x) && !!x.dueDate && x.dueDate <= w.to); };
+  const week = [], pkg = [];
+  for (const sg of FX.rounds) {
+    const tasks = sg.tasks.filter((x) => rankOk(x, rs)); if (!tasks.length) continue;
+    const open = tasks.filter(isOpen), done = tasks.filter((x) => doneIds.has(x.id) && !isOpen(x));
+    const thisWeek = open.filter((x) => !isHours(x) && x.dueDate >= w.from);
+    const late = open.filter((x) => status(x, today) === 'overdue').length;
+    const item = { key: sg.key, sg, name: sugName(sg), icon: kIcon(sg), period: sg.period, open: open.length, done: done.length, total: open.length + done.length, late };
+    if (sg.period === 'week' || thisWeek.length || (!open.length && done.length)) week.push(item);
+    else if (open.length) pkg.push(item);
   }
-  const rs = rankSel();
-  const mine = m.tasks.filter((x) => rankOk(x, rs));
-  const od = mine.filter((x) => status(x) === 'overdue').sort(byDue), wk = mine.filter((x) => status(x) === 'week').sort(byDue);
-  const lim = (xs) => xs.slice(0, 6).map(taskRow).join('');
-  const who = rs.size ? ` <small>· 👤 ${A.esc(rankLabels([...rs]))}</small>` : '';
-  h += `<h3 class="sec red">🔴 ${t('Te laat')} <small>(${od.length})</small>${who}</h3><div class="mlist">${lim(od) || `<p class="muted small">${t('Niets te laat.')}</p>`}</div>${od.length > 6 ? `<button class="btn small ghost" data-act="mQuickGo" data-v="overdue">${t('Alle {n} tonen', { n: od.length })}</button>` : ''}`;
-  h += `<h3 class="sec orange">🟠 ${t('Binnenkort (≤ 7 dagen)')} <small>(${wk.length})</small>${who}</h3><div class="mlist">${lim(wk) || `<p class="muted small">${t('Niets binnen 7 dagen.')}</p>`}</div>${wk.length > 6 ? `<button class="btn small ghost" data-act="mQuickGo" data-v="week">${t('Alle {n} tonen', { n: wk.length })}</button>` : ''}`;
+  const claimed = new Set(FX.rounds.flatMap((sg) => sg.tasks.map((x) => x.id)));
+  const rest = m.tasks.filter((x) => !claimed.has(x.id) && rankOk(x, rs) && status(x, today) === 'overdue').length;
+  week.sort((a, b) => (!a.open) - (!b.open) || (PORD[a.period] ?? 3) - (PORD[b.period] ?? 3) || b.late - a.late || a.name.localeCompare(b.name));
+  pkg.sort((a, b) => b.open - a.open || a.name.localeCompare(b.name));
+  return { ...w, today, week, pkg, rest, rs };
+}
+function boardHTML({ sent = [], busy = [], doneAfter = () => false } = {}) {
+  const B = weekBoard(); if (!B) return '';
+  const S_ = SIZE();
+  const who = (key) => { // al bij iemand? (bestaande Taken verdelen + Voortgang-gegevens, geen tweede administratie)
+    const xs = sent.filter((s) => s.list === key && !doneAfter(s.aid, s.ver));
+    const b = xs.find((s) => busy.some((x) => x.route === s.routeId));
+    if (b) return `<span class="wc-who busy">⏳ ${t('{name} is bezig', { name: A.esc(b.name || rankLabel(b.rank)) })}</span>`;
+    return xs.length ? `<span class="wc-who">📤 ${t('bij {name}', { name: A.esc(xs.map((s) => s.name || rankLabel(s.rank)).join(', ')) })}</span>` : '';
+  };
+  const size = (n) => { const [l, k] = S_[sizeOf(n)]; return `<span class="wc-size" title="${t('Omvang')}"><i class="pips p${k}" aria-hidden="true"><b></b><b></b><b></b></i>${l}</span>`; };
+  const dd = (iso, o) => new Date(iso + 'T12:00:00').toLocaleDateString(LOCALES[getLang()], o);
+  const range = B.from.slice(0, 7) === B.to.slice(0, 7) ? `${dd(B.from, { day: 'numeric' })}–${dd(B.to, { day: 'numeric', month: 'short' })}` : `${dd(B.from, { day: 'numeric', month: 'short' })} – ${dd(B.to, { day: 'numeric', month: 'short' })}`;
+  let h = `<section class="wboard" aria-label="${t('Weekbord')}">`;
+  h += rankChips();
+  // ---- Deze week ----
+  const ready = B.week.filter((x) => !x.open).length;
+  h += `<div class="wb-head"><h2>${t('Deze week')}</h2><span class="wb-range">${t('Week {w}', { w: B.wk })} · ${A.esc(range)}</span></div>`;
+  if (B.week.length) h += `<div class="wb-bar" role="img" aria-label="${t('{a} van {b} rondes klaar', { a: ready, b: B.week.length })}"><span class="wb-meter"><i style="width:${Math.round((ready / B.week.length) * 100)}%"></i></span><small>${t('{a} van {b} rondes klaar', { a: ready, b: B.week.length })}</small></div>`;
+  h += `<div class="wb-list">`;
+  if (!B.week.length) h += `<p class="wb-empty">${B.rs.size ? t('Deze week niets gepland voor deze functie.') : t('Deze week niets gepland.')}</p>`;
+  for (const x of B.week) {
+    const fin = !x.open;
+    const meta = fin ? (x.done ? t('{n} taken afgetekend', { n: x.done }) : t('niets aan de beurt'))
+      : [(x.total === 1 ? t('1 taak') : t('{n} taken', { n: x.total })), x.done ? `${x.done}/${x.total}` : '', x.late ? `<span class="wc-late">${t('waarvan {n} al over tijd', { n: x.late })}</span>` : ''].filter(Boolean).join(' · ');
+    h += `<button class="wcard ${fin ? 'done' : ''} ${x.late && !fin ? 'late' : ''}" data-act="distOpen" data-k="${A.esc(x.key)}" data-k-board="week">
+      <span class="wc-ic" aria-hidden="true">${fin ? '✓' : x.icon}</span>
+      <span class="wc-body"><b class="wc-name">${A.esc(x.name)}</b><span class="wc-meta">${meta}</span><span class="wc-per">${periodLbl(x.period)}${who(x.key) ? ' · ' : ''}${who(x.key)}</span></span>
+      <span class="wc-side">${fin ? `<span class="wc-ok">${t('klaar')}</span>` : size(x.open)}</span>
+      ${!fin && x.done ? `<span class="wc-prog" aria-hidden="true"><i style="width:${Math.round((x.done / x.total) * 100)}%"></i></span>` : ''}</button>`;
+  }
+  h += `</div>`;
+  // ---- Achterstallig pakket ----
+  const sum = B.pkg.reduce((a, x) => a + x.open, 0) + B.rest;
+  h += `<div class="wb-head pkg"><h2>${t('Achterstallig pakket')}</h2><span class="wb-range">${sum ? t('{n} taken', { n: sum }) : ''}</span></div>`;
+  if (sum) h += `<p class="wb-sub">${t('Extra inhaalwerk van vóór deze week – stapel voor stapel weg te werken.')}</p><div class="wb-bar warn"><small>${t('Achterstallig nog {n} taken', { n: sum })}</small></div>`;
+  h += `<div class="wb-list">`;
+  if (!sum) h += `<p class="wb-empty ok">${t('Niets achterstallig.')}</p>`;
+  for (const x of B.pkg) h += `<button class="wcard pile" data-act="distOpen" data-k="${A.esc(x.key)}" data-k-board="pkg">
+      <span class="wc-ic" aria-hidden="true">${x.icon}</span>
+      <span class="wc-body"><b class="wc-name">${A.esc(x.name)}</b><span class="wc-meta">${periodLbl(x.period)}${x.done ? ' · ' + t('{n} deze week ingehaald', { n: x.done }) : ''}</span>${who(x.key) ? `<span class="wc-per">${who(x.key)}</span>` : ''}</span>
+      <span class="wc-side"><span class="wc-count"><b>${x.open}</b><small>${t('te laat')}</small></span>${size(x.open)}</span></button>`;
+  if (B.rest) h += `<button class="wcard pile rest" data-act="mQuickGo" data-v="overdue" data-k-board="rest">
+      <span class="wc-ic" aria-hidden="true">🗂</span>
+      <span class="wc-body"><b class="wc-name">${t('Overige taken')}</b><span class="wc-meta">${t('niet in een vaste ronde · via Onderhoud')}</span></span>
+      <span class="wc-side"><span class="wc-count"><b>${B.rest}</b><small>${t('te laat')}</small></span>${size(B.rest)}</span></button>`;
+  h += `</div></section>`;
   return h;
 }
 /** Vaste ronde starten vanaf Vandaag: gekoppelde route verversen (of aanmaken als terugkerend sjabloon) en de route-id teruggeven. */

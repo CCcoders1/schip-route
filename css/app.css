@@ -482,3 +482,48 @@ html:has(#pairCode, .pday, .pbusy, .pperson, [data-act=pairPaste]) header.top h1
 .dstat.done { font-weight: 700; }
 .crewdone summary { font-weight: 700; } .emptystate.alldone .big { font-size: 2.4rem; }
 .pbusy { position: relative; padding-right: 48px; } .pclear { position: absolute; top: 8px; right: 8px; }
+/* ---------- v1.14: weekbord (Deze week + Achterstallig pakket) ---------- */
+:root { --late: #a14a0a; --wshadow: 0 1px 2px rgba(11,26,38,.06), 0 6px 18px rgba(11,26,38,.06); }
+[data-theme="dark"] { --late: #ffb15c; --wshadow: 0 1px 2px rgba(0,0,0,.35); }
+.wboard { margin: 6px 0 4px; }
+.wboard .rchips { margin: 2px 0 0; }
+.wb-head { flex-wrap: wrap; display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 20px 2px 8px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+.wb-head h2 { font-size: 1.3rem; letter-spacing: -.01em; margin: 0; display: flex; align-items: center; gap: 10px; }
+.wb-head h2::before { content: ''; width: 4px; height: 1.05em; border-radius: 2px; background: var(--pri); }
+.wb-head.pkg h2::before { background: var(--late); }
+.wb-range { color: var(--muted); font-size: .85rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.wb-bar { display: flex; align-items: center; gap: 10px; margin: 0 2px 12px; }
+.wb-bar small { color: var(--muted); font-size: .86rem; }
+.wb-bar.warn small { color: var(--late); font-weight: 600; }
+.wb-meter { flex: 0 0 88px; height: 6px; border-radius: 99px; background: var(--chip); overflow: hidden; }
+.wb-meter i { display: block; height: 100%; border-radius: inherit; background: var(--ok); transition: width .4s ease; }
+.wb-sub { margin: 0 2px 6px; color: var(--muted); font-size: .88rem; }
+.wb-list { display: flex; flex-direction: column; gap: 10px; }
+.wb-empty { margin: 0; padding: 14px 16px; border: 1px dashed var(--line); border-radius: 16px; color: var(--muted); font-size: .92rem; }
+.wb-empty.ok::before { content: '✓'; color: var(--ok); font-weight: 800; margin-right: 8px; }
+.wcard { margin: 0; position: relative; overflow: hidden; display: flex; align-items: center; gap: 14px; width: 100%; min-height: 78px; padding: 14px 14px 14px 18px; text-align: left; font: inherit; color: var(--fg); background: var(--card); border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--wshadow); cursor: pointer; }
+.wcard::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 5px; background: var(--pri); }
+.wcard.late::before, .wcard.pile::before { background: var(--late); }
+.wcard:active { transform: scale(.99); }
+.wcard:focus-visible { outline: 3px solid var(--acc); outline-offset: 2px; }
+.wc-ic { flex: none; width: 44px; height: 44px; border-radius: 13px; display: grid; place-items: center; background: var(--sup); font-size: 1.3rem; }
+.wc-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.wc-name { font-size: 1.04rem; line-height: 1.25; overflow-wrap: anywhere; }
+.wc-meta { font-size: .88rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.wc-late { color: var(--late); font-weight: 600; }
+.wc-per { font-size: .8rem; color: var(--muted); }
+.wc-who { font-weight: 600; color: var(--fg); } .wc-who.busy { color: var(--ok); }
+.wc-side { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+.wc-size { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border: 1px solid var(--line); border-radius: 99px; font-size: .78rem; color: var(--muted); white-space: nowrap; }
+.pips { display: inline-flex; gap: 2px; } .pips b { width: 5px; height: 5px; border-radius: 50%; background: var(--line); }
+.pips.p1 b:nth-child(1), .pips.p2 b:nth-child(-n+2), .pips.p3 b { background: var(--muted); }
+.wc-count { display: flex; flex-direction: column; align-items: flex-end; line-height: 1; }
+.wc-count b { font-size: 1.55rem; color: var(--late); font-variant-numeric: tabular-nums; }
+.wc-count small { font-size: .74rem; color: var(--muted); margin-top: 2px; }
+.wc-prog { position: absolute; left: 5px; right: 0; bottom: 0; height: 3px; background: var(--chip); }
+.wc-prog i { display: block; height: 100%; background: var(--ok); }
+.wcard.done { background: transparent; box-shadow: none; min-height: 64px; }
+.wcard.done::before { background: var(--ok); opacity: .55; }
+.wcard.done .wc-ic { background: transparent; border: 2px solid var(--ok); color: var(--ok); font-weight: 800; font-size: 1.1rem; width: 40px; height: 40px; }
+.wcard.done .wc-name { font-weight: 600; color: var(--muted); }
+.wc-ok { font-size: .8rem; font-weight: 700; color: var(--ok); letter-spacing: .02em; }
