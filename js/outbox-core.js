@@ -55,13 +55,18 @@
   }
   let busy = false;
   async function flushInner() {
-    const items = (await all()).filter((x) => x.status !== 'sent');
-    let sent = 0, failed = 0;
-    for (const it of items) {
-      try { it.attempts = (it.attempts || 0) + 1; await sendOne(it); sent++; }
-      catch (e) { failed++; it.lastError = String(e.message || e); it.lastTry = new Date().toISOString(); await put(it).catch(() => {}); if (e instanceof TypeError) break; /* netwerk weg */ }
+    // ook items meenemen die tíjdens het versturen in de outbox kwamen (anders wachten ze op de volgende ronde)
+    const tried = new Set(); let sent = 0, failed = 0, net = false;
+    for (let round = 0; round < 5 && !net; round++) {
+      const items = (await all()).filter((x) => x.status !== 'sent' && !tried.has(x.id));
+      if (!items.length) break;
+      for (const it of items) {
+        tried.add(it.id);
+        try { it.attempts = (it.attempts || 0) + 1; await sendOne(it); sent++; }
+        catch (e) { failed++; it.lastError = String(e.message || e); it.lastTry = new Date().toISOString(); await put(it).catch(() => {}); if (e instanceof TypeError) { net = true; break; } /* netwerk weg */ }
+      }
     }
-    return { sent, failed, pending: items.length - sent };
+    return { sent, failed, pending: tried.size - sent };
   }
   async function flush() {
     if (g.navigator && g.navigator.onLine === false) return { sent: 0, failed: 0, offline: true };

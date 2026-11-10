@@ -245,10 +245,8 @@ svg.ship.top .mk .nr { font-size: 13px; }
 .infobox, .okbox { border-radius: 10px; padding: 10px 12px; margin: 8px 0; } .infobox { background: #e7f1fb; color: #0b3d5c; border: 1px solid #b9d3ea; } .okbox { background: #e6f6ec; color: #0a5d2c; border: 1px solid #a8dcbb; }
 [data-theme="dark"] .infobox { background: #12324a; color: #d6e9f8; border-color: #24527a; } [data-theme="dark"] .okbox { background: #0f3420; color: #c9f0d6; border-color: #1f6b3e; }
 .signoffs { list-style: none; padding: 0; } .signoffs li { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; margin: 6px 0; } .signoffs small { display: block; color: var(--muted); }
-/* modus / whatsapp */
+/* modus */
 .modechip { font-size: 1.2rem; }
-.wasec h3 { margin: 0 0 8px; font-size: 1rem; } .wabtns { display: flex; flex-wrap: wrap; gap: 6px; }
-.btn.wa { background: #25d366; color: #06361a; border-color: #1da851; font-weight: 800; text-decoration: none; }
 body:has(#sheet:not([hidden])) .selbar { display: none; }
 .unlock input[type=password] { width: 100%; min-height: 56px; font-size: 1.2rem; border: 2px solid var(--line); border-radius: 12px; padding: 0 14px; margin: 8px 0; background: var(--card); color: var(--fg); }
 .err { color: var(--warn); font-weight: 700; margin: 4px 0 8px; }
@@ -268,7 +266,6 @@ html { -webkit-text-size-adjust: 100%; } body { min-height: 100vh; min-height: 1
 .sugbanner small { color: var(--muted); }
 .radios .switch { min-height: 40px; } .radios input[type=radio] { width: 24px; height: 24px; min-height: 0; margin: 0; flex: none; accent-color: var(--pri); }
 .unl.small, p.small { font-size: .85rem; }
-.btn.wa small { font-weight: 500; opacity: .85; }
 .tplcard { border-left: 6px solid var(--acc); }
 #nav button { position: relative; }
 .nbadge { position: absolute; top: 6px; left: 50%; margin-left: 8px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 99px; background: #c62828; color: #fff; font-size: .72rem; line-height: 20px; font-weight: 800; }
@@ -443,7 +440,6 @@ details.otherranks summary { cursor: pointer; font-weight: 600; }
 .dfoot { position: fixed; left: 0; right: 0; bottom: calc(64px + env(safe-area-inset-bottom)); z-index: 9; padding: 8px 16px; background: var(--bg); border-top: 1px solid var(--line); }
 .pgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; } .pbtn { display: flex; flex-direction: column; align-items: center; } .pbtn.on { border: 2px solid var(--pri); }
 .rankgrid.compact .rankcard { min-height: 66px; } .rankgrid.compact .ri { font-size: 1.4rem; }
-.dgroup .btn.wa { width: 100%; }
 /* ---------- v1.10 olie: bijgevuld-lijst + snelle aantekening ---------- */
 .qchips { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 10px; } .qchips .chip { min-height: 40px; padding: 6px 12px; } .qchips .chip.on { background: var(--pri); color: var(--pri-fg); }
 input.bignum { font-size: 1.6rem; font-weight: 700; }
@@ -482,3 +478,7 @@ html:has(.dtasks, .dlist, .dgroup) header.top h1 { font-size: 1.3rem; line-heigh
 .prun summary small { color: var(--muted); } .prun ol { margin: 8px 0 0; }
 .pday { margin-top: 18px; } .dstat.wait { color: #a07800; }
 html:has(#pairCode, .pday, .pbusy, .pperson, [data-act=pairPaste]) header.top h1 { font-size: 1rem; line-height: 1.2; hyphens: auto; -webkit-hyphens: auto; }
+/* v1.13: afgerond */
+.dstat.done { font-weight: 700; }
+.crewdone summary { font-weight: 700; } .emptystate.alldone .big { font-size: 2.4rem; }
+.pbusy { position: relative; padding-right: 48px; } .pclear { position: absolute; top: 8px; right: 8px; }

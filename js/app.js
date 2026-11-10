@@ -9,7 +9,7 @@ import { shipSVG, svgPointToLoc, VIEWS } from './shipmap.js';
 import { t, tx, setTx, getLang, setLang, LANGS, LOCALES } from './i18n.js';
 import { RANK_IDS, RANK_ICON, normRank, rankLabel } from './ranks.js';
 
-const APP_VERSION = '1.12.1';
+const APP_VERSION = '1.13.0';
 const TEST = self.__SRTEST || {}; // alleen tests: { noSplash, noProfile }
 const OB = self.OutboxCore;
 const $ = (s, el = document) => el.querySelector(s);
@@ -138,7 +138,7 @@ function iosInstallSheet(next = null) {
       <li><span class="ico">✅</span><div><b>${t('Tik op "Voeg toe"')}</b><small>${t('Rechtsboven. Het icoon "Schip Route" staat nu op je beginscherm.')}</small></div></li>
       <li><span class="ico">🚢</span><div><b>${t('Open de app vanaf het beginscherm')}</b><small>${t('Dan start hij schermvullend en werkt hij offline. Gebruik vanaf nu altijd dit icoon.')}</small></div></li>
     </ol>
-    <p class="infobox">${t('ℹ️ Belangrijk op iPhone: de app op het beginscherm heeft een eigen opslag, los van Safari. Een route-link uit WhatsApp opent in Safari: kopieer hem daar met "📋 Kopieer route" en plak hem in de app met "📋 Route plakken".')}</p>
+    <p class="infobox">${t('ℹ️ Belangrijk op iPhone: de app op het beginscherm heeft een eigen opslag, los van Safari. Een oude route-link opent in Safari: kopieer hem daar met "📋 Kopieer route" en plak hem in de app met "📋 Route plakken".')}</p>
     ${needsProfile() ? `<p class="warnbox">${t('👤 Maak je profiel (naam en rang) het liefst in de app vanaf je beginscherm: Safari en de app bewaren hun gegevens apart.')}</p>` : ''}
     <button class="btn primary big" data-act="closeSheet">${t('Begrepen')}</button>
     ${next ? `<button class="btn ghost" data-act="iosContinue">${t('Ga verder in Safari')}</button>` : ''}`, { iosInstall: true, next });
@@ -254,7 +254,6 @@ function viewRoute() {
     <label>${t('Omschrijving')}<textarea data-rf="description" rows="2">${esc(r.description || '')}</textarea></label>
     <label>${t('Bestemd voor')}<select data-rf="assignee"><option value="">${t('— niemand / mezelf —')}</option>${state.contacts.map((c) => `<option ${c.name === r.assignee ? 'selected' : ''}>${esc(tx(c, 'name'))}</option>`).join('')}</select></label></div>`;
   h += MT.templateInfo(r);
-  h += waSection(r);
   h += `<div class="mapcard">${viewToggle('routeMapView', view.mapMode)}<div class="mapwrap">${shipSVG({ view: view.mapMode, locations: state.locations, numbers: nums, ship: state.shipName })}</div><p class="hint">${t('Nummers = volgorde van de taken.')}</p></div>`;
   h += `<h3 class="sec">${t('Taken (')}${r.steps.length}) <small>${t('sleep ☰ of gebruik ▲▼')}</small></h3><ol class="steps" id="steps">`;
   r.steps.forEach((s, i) => {
@@ -371,7 +370,7 @@ function othersResult(run, x) {
   return `<li class="st-${x.status}"><b>${x.status === 'done' ? '✔' : x.status === 'problem' ? '⚠' : '↷'} ${esc(tx(x, 'title'))}</b> <small>📍 ${esc(x.locName)} · ${new Date(x.at).toLocaleTimeString(LOCALES[getLang()], { timeStyle: 'short' })}</small> ${resultFlags(x)}${md}${vals ? `<ul>${vals}</ul>` : ''}${x.note ? `<p class="note">📝 ${esc(x.note)}</p>` : ''}</li>`;
 }
 function viewOthers() {
-  let h = `<section class="card pastecard"><h3>${t('📨 Rapport binnenhalen')}</h3><p class="muted small">${t('Open de rapport-link uit WhatsApp of de melding: dan wordt hij vanzelf geïmporteerd. Of plak hem hier:')}</p>
+  let h = `<section class="card pastecard"><h3>${t('📨 Rapport binnenhalen')}</h3><p class="muted small">${t('Rapporten van gekoppelde bemanning komen vanzelf binnen. Een oude rapport-link of -tekst kun je hier plakken:')}</p>
     <textarea id="repPaste" rows="2" placeholder="${t('Plak hier de rapport-link of -tekst')}"></textarea>
     <div class="row"><button class="btn small" data-act="repClip">${t('📋 Plakken')}</button><button class="btn small" data-act="ntfyPoll">${t('🔄 Ophalen uit meldingskanaal')}</button><button class="btn small" data-act="importFile">${t('📄 Bestand')}</button></div>
     <p class="muted small" id="pollInfo">${state.settings.ntfyPolledAt ? t('Laatst opgehaald: {d}', { d: fmtDT(state.settings.ntfyPolledAt) }) : ''}</p></section>`;
@@ -423,7 +422,7 @@ function viewRunDetail() {
   const c = runStats(run);
   let h = header(run.routeName, true);
   h += `<p>${fmtDT(run.startedAt)} → ${fmtDT(run.finishedAt)}${run.by ? ` · ${t('door {name}', { name: esc(run.by) })}` : ''}</p><p><span class="tag ok">✔ ${c.done}</span> <span class="tag">↷ ${c.skipped}</span> <span class="tag warn">⚠ ${c.problem}</span></p>`;
-  h += `<div class="row"><button class="btn" data-act="exportRun" data-id="${run.id}" data-f="csv">${t('⬇ CSV')}</button><button class="btn" data-act="exportRun" data-id="${run.id}" data-f="json">${t('⬇ JSON')}</button><button class="btn" data-act="shareSummary" data-id="${run.id}">${t('📤 Samenvatting')}</button></div><ol class="results">`;
+  h += `<div class="row"><button class="btn" data-act="exportRun" data-id="${run.id}" data-f="csv">${t('⬇ CSV')}</button><button class="btn" data-act="exportRun" data-id="${run.id}" data-f="json">${t('⬇ JSON')}</button></div><ol class="results">`;
   for (const x of run.results) {
     h += `<li class="st-${x.status}"><b>${esc(tx(x, 'title'))}</b> <small>📍 ${esc(x.locName)} · ${new Date(x.at).toLocaleTimeString(LOCALES[getLang()], { timeStyle: 'short' })} · ${{ done: t('✔ klaar'), skipped: t('↷ overgeslagen'), problem: t('⚠ probleem') }[x.status]}</small>`;
     if (x.fields?.length) h += `<ul>${x.fields.map((f) => `<li class="${x.outOfRange?.includes(f.id) ? 'oor' : ''}">${esc(tx(f, 'label'))}: <b>${esc(fmtVal(f, x.values?.[f.id]))}</b></li>`).join('')}</ul>`;
@@ -439,12 +438,11 @@ function viewMore() {
   h += `<section class="card"><h2>${t('🌐 Taal · Language · Bahasa')}</h2><div class="seg langseg">${Object.entries(LANGS).map(([k, v]) => `<button class="${k === getLang() ? 'on' : ''}" data-act="setLang" data-v="${k}">${v.flag} ${k.toUpperCase()}</button>`).join('')}</div><p class="muted small">${t('Per toestel. De meldingen naar de ontvanger blijven Nederlands; getypte tekst wordt niet vertaald.')}</p></section>`;
   h += modeCard();
   h += `<section class="card"><h2>${t('🔧 MARAD-onderhoud')}</h2><p class="muted">${t('Worklist-export uit MARAD inlezen (.xlsx/.csv). Bijwerken zonder dubbelingen.')}</p><div class="row"><button class="btn" data-act="mImport">${t('📥 MARAD-import')}</button><button class="btn" data-act="reportImport">${t('📨 Rapport importeren')}</button></div>${state.maint ? `<button class="btn ghost small" data-act="mLock">${t('🔒 Vergrendel opnieuw (lokale MARAD-kopie wissen)')}</button>` : ''}</section>`;
-  h += `<section class="card"><h2>${t('Personen')}</h2><p class="muted">${t('Naar wie je routes kunt sturen.')}</p><ul class="locs">${state.contacts.map((c) => `<li data-act="editContact" data-id="${c.id}"><span>👤 ${esc(tx(c, 'name'))}${c.func ? ` <small class="func">· ${esc(c.func)}</small>` : ''}</span><small>${esc(c.phone || c.email || '')}</small></li>`).join('')}</ul><button class="btn small" data-act="editContact">${t('+ Persoon toevoegen')}</button></section>`;
+  h += `<section class="card"><h2>${t('Personen')}</h2><p class="muted">${t('Naar wie je routes kunt sturen.')}</p><ul class="locs">${state.contacts.map((c) => `<li data-act="editContact" data-id="${c.id}"><span>👤 ${esc(tx(c, 'name'))}${c.func ? ` <small class="func">· ${esc(c.func)}</small>` : ''}</span><small>${c.inbox ? '🔗 ' + t('gekoppeld') : t('niet gekoppeld')}</small></li>`).join('')}</ul><div class="row"><button class="btn small" data-act="pairSheet">🔗 ${t('Iemand koppelen')}</button><button class="btn small ghost" data-act="editContact">${t('+ Persoon toevoegen')}</button></div></section>`;
   const tog = (k, label) => `<label class="switch"><input type="checkbox" data-set="${k}" ${st[k] ? 'checked' : ''}><span>${label}</span></label>`;
   h += `<section class="card"><h2>${t('Instellingen')}</h2>
     <label>${t('Schip')}<input data-ship value="${esc(state.shipName)}"></label>
     ${profileRow()}
-    <label>${t('Mijn telefoon (WhatsApp) – bemanning stuurt rapporten hierheen')}<input type="tel" data-set-text="userPhone" value="${esc(st.userPhone || '')}" placeholder="+31 6…"></label>
     <label>${t('Thema')}<select data-set-sel="theme"><option value="auto" ${st.theme === 'auto' ? 'selected' : ''}>${t('Automatisch')}</option><option value="light" ${st.theme === 'light' ? 'selected' : ''}>${t('Licht (hoog contrast)')}</option><option value="dark" ${st.theme === 'dark' ? 'selected' : ''}>${t('Donker')}</option></select></label>
     ${tog('bigText', t('Extra grote tekst'))}${tog('vibrate', t('Trillen bij volgende stap'))}${tog('speak', t('Instructie uitspreken (spraak)'))}${tog('wakeLock', t('Scherm aan houden tijdens ronde'))}${fsToggle(tog)}${tog('resumeOnStart', t('Lopende ronde direct openen bij starten app'))}</section>`;
   h += `<section class="card" id="ntfyCard"><h2>${t('🔔 Meldingen (vragen & observaties)')}</h2>
@@ -467,7 +465,6 @@ function afterRender() {
     r.steps = ids.map((id) => r.steps.find((s) => s.id === id));
     touch(r); render();
   });
-  fillWaLinks();
   const oc = $('.rchips .chip.on'); if (oc && oc.dataset.v) oc.parentElement.scrollLeft = oc.offsetLeft - 60;
   const img = $('#planImg');
   if (img) getPlan($('#plan').dataset.deck).then((src) => { if (src) img.src = src; });
@@ -568,42 +565,22 @@ function saveDraft() {
   closeSheet(); render();
 }
 
-// ---------- route delen / importeren ----------
-async function openShare(r) {
-  const pkg = () => routePackage(state, r, sheetCtx?.to || '');
-  const contactOpts = state.contacts.map((c) => `<option value="${c.id}" ${c.name === r.assignee ? 'selected' : ''}>${esc(tx(c, 'name'))}</option>`).join('');
-  openSheet(`<h2>${t('Route versturen')}</h2><p><b>${esc(tx(r, 'name'))}</b> · ${plural(r.steps.length, t('taak'), t('taken'))}</p>
-    <label>${t('Naar')}<select id="shTo">${contactOpts}<option value="">${t('Iemand anders…')}</option></select></label>
-    <div id="shOther" class="subform" hidden><label>${t('Naam')}<input id="shName" placeholder="${t('Naam')}"></label><label>${t('Telefoon (WhatsApp, optioneel)')}<input id="shPhone" type="tel" placeholder="+31 6…"></label><label>${t('E-mail (optioneel)')}<input id="shEmail" type="email"></label><label class="switch"><input type="checkbox" id="shSave" checked><span>${t('Bewaren in personen')}</span></label></div>
-    <label>${t('Bericht')}<textarea id="shText" rows="3"></textarea></label>
-    <div class="stack"><button class="btn primary big" data-act="shLink">${t('📤 Deel link (WhatsApp, mail, …)')}</button><button class="btn" data-act="shFile">${t('📄 Deel als bestand (.json)')}</button><div class="row" id="shDirect"></div><button class="btn ghost" data-act="shCopy">${t('🔗 Kopieer link')}</button></div>
-    <p class="muted small" id="shInfo">${t('Link maken…')}</p><p class="muted small">${t('De ontvanger opent de link (of het bestand) in deze app; de route wordt dan geïmporteerd en werkt daarna offline.')}</p>`, { route: r, to: '' });
-  const upd = async () => {
-    const sel = $('#shTo').value;
-    const c = state.contacts.find((x) => x.id === sel);
-    $('#shOther').hidden = !!c;
-    const name = c ? c.name : $('#shName').value.trim();
-    const phone = c ? c.phone : $('#shPhone').value.trim();
-    const email = c ? c.email : $('#shEmail').value.trim();
-    sheetCtx.to = name; sheetCtx.phone = phone; sheetCtx.email = email;
-    sheetCtx.link = await buildShareLink(pkg());
-    $('#shText').value = (name ? t('Route "{route}" voor {name} – {n} ({ship}). Open de link om de route in de app te zetten:', { route: tx(r, 'name'), name, n: plural(r.steps.length, t('taak'), t('taken')), ship: state.shipName }) : t('Route "{route}" – {n} ({ship}). Open de link om de route in de app te zetten:', { route: tx(r, 'name'), n: plural(r.steps.length, t('taak'), t('taken')), ship: state.shipName }));
-    $('#shInfo').textContent = t('Link: {n} tekens', { n: sheetCtx.link.length }) + (sheetCtx.link.length > 6000 ? t(' – lang; deel liever als bestand') : '');
-    const msg = encodeURIComponent($('#shText').value + '\n' + sheetCtx.link);
-    const ph = (phone || '').replace(/[^\d]/g, '').replace(/^0(?=6)/, '31');
-    $('#shDirect').innerHTML = (ph ? `<a class="btn" href="https://wa.me/${ph}?text=${msg}" target="_blank" rel="noopener" data-act="shLog" data-via="whatsapp">${t('WhatsApp')} ${esc(name)}</a>` : '') + (email ? `<a class="btn" href="mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(t('Route ') + r.name)}&body=${msg}" data-act="shLog" data-via="mail">${t('Mail')} ${esc(name)}</a>` : '');
-  };
-  sheetCtx.update = upd;
-  await upd();
+// ---------- route versturen (direct in de app van een gekoppeld persoon) / importeren ----------
+/** v1.13: geen WhatsApp/deelmenu meer. Versturen = plaatsen in de app van een gekoppeld persoon (outbox → ntfy, ook offline). */
+function sendRouteSheet(r) {
+  if (!r) return;
+  if (!r.steps.length) return toast(t('Deze route heeft nog geen taken.'));
+  const ps = LINK.paired();
+  openSheet(`<h2>${t('📤 Route versturen')}</h2><p><b>${esc(tx(r, 'name'))}</b> · ${plural(r.steps.length, t('taak'), t('taken'))}</p>
+    ${ps.length ? `<p class="muted small">${t('Kies een gekoppeld persoon. Het lijstje komt dan vanzelf in zijn app.')}</p><div class="stack">${ps.map((c) => `<button class="btn ${c.name === r.assignee ? 'primary big' : ''}" data-act="sendTo" data-id="${r.id}" data-cid="${c.id}">🔗 ${esc(c.name)}${c.func ? ` <small>· ${esc(rankLabel(normRank(c.func)) || c.func)}</small>` : ''}</button>`).join('')}</div>`
+      : `<p class="warnbox">${t('Nog niemand gekoppeld. Versturen kan alleen naar iemand die gekoppeld is: laat hem in zijn app Meer → Koppelen met Beheer openen en plak zijn code hier.')}</p>`}
+    <div class="row"><button class="btn small" data-act="pairSheet">🔗 ${t('Iemand koppelen')}</button><button class="btn small ghost" data-act="closeSheet">${t('Annuleren')}</button></div>`, { route: r });
 }
-function logSend(via) {
-  const { route: r, to } = sheetCtx;
-  if (sheetCtx.saveNew !== false && to && !state.contacts.some((c) => c.name === to) && $('#shSave')?.checked) {
-    state.contacts.push({ id: 'c-' + rid(), name: to, phone: sheetCtx.phone || '', email: sheetCtx.email || '' });
-  }
-  if (to) r.assignee = to;
-  (r.sentLog ??= []).push({ to: to || '?', at: new Date().toISOString(), via });
-  save();
+async function deliverTo(r, c) {
+  if (!r || !c?.inbox) return;
+  r.assignee = c.name; (r.sentLog ??= []).push({ to: c.name, at: new Date().toISOString(), via: 'app' }); save();
+  closeSheet(); render();
+  await LINK.deliver(r, c, 'route#' + r.id + '#' + c.id);
 }
 function importSheet(pkg) {
   const r = pkg.route;
@@ -686,7 +663,8 @@ async function startRun(id) {
   if (state.activeRun && !confirm(t('Er loopt nog een ronde ({name}). Die afbreken en deze starten?', { name: tx(state.activeRun.route, 'name') }))) return;
   const locs = {};
   for (const s of r.steps) { const l = loc(s.locationId); if (l) locs[l.id] = { ...clone(l), deckName: deckName(l.deck) }; }
-  state.activeRun = { id: 'run-' + rid(), routeId: r.id, route: clone(r), locs, idx: 0, results: [], values: {}, startedAt: new Date().toISOString(), by: state.settings.userName || '' };
+  const rc = clone(r); if (r.stepsDone?.length && r.stepsDone.length < r.steps.length) rc.steps = rc.steps.filter((s) => !r.stepsDone.includes(s.id)); // al afgetekend in Beheer → overslaan
+  state.activeRun = { id: 'run-' + rid(), routeId: r.id, route: rc, locs, idx: 0, results: [], values: {}, startedAt: new Date().toISOString(), by: state.settings.userName || '' };
   save(); openRun(); LINK.progressEvent('started');
 }
 async function enterRunChrome() {
@@ -796,8 +774,14 @@ function renderRunDone() {
   const ar = state.activeRun;
   const run = { id: ar.id, routeId: ar.routeId, routeName: tx(ar.route, 'name'), ship: state.shipName, by: ar.by, startedAt: ar.startedAt, finishedAt: new Date().toISOString(), results: ar.results, messages: ar.messages || [] };
   if (ar.route.notifyTopic) run.notify = { topic: ar.route.notifyTopic, server: ar.route.notifyServer }; if (ar.route.replyTo) run.replyTo = ar.route.replyTo; run.from = ar.route.from || '';
-  state.runs.push(run); state.activeRun = null; save();
-  if (!isCrew() && state.maint) { const m = MT.applyRun(run); run.maradDone = m.done; save(); }
+  state.runs.push(run); LINK.progressEvent('done', { ...ar, results: ar.results, route: ar.route }); state.activeRun = null;
+  // v1.13: ontvangen lijstje afgerond → niet meer als open werk onder "Voor jou" (wel bij "Afgerond")
+  const rr = route(ar.routeId); if (rr?.importedAt) { rr.doneAt = run.finishedAt; rr.doneRunId = run.id; }
+  save();
+  if (!isCrew() && state.maint) { const m = MT.applyRun(run); run.maradDone = m.done; save(); LINK.syncDone(); }
+  // v1.13: rapport gaat automatisch naar Beheer (via de outbox; offline: wachtrij) – geen knop of WhatsApp meer nodig
+  const autoRep = isCrew() || !!run.notify;
+  if (autoRep) { const q = () => queueReport(run).then((ok) => { const el = $('#repStat'); if (el) el.outerHTML = repStatHTML(run, ok); }); if (!askProfile(q)) q(); } // zonder naam eerst het profiel, daarna gaat het rapport vanzelf
   const c = runStats(run);
   if (state.settings.vibrate && navigator.vibrate) navigator.vibrate([80, 60, 160]);
   speak(t('Ronde voltooid. Goed gedaan!'));
@@ -805,7 +789,8 @@ function renderRunDone() {
     <p class="donestats"><span class="tag ok">✔ ${c.done} ${t('klaar')}</span> <span class="tag">↷ ${c.skipped} ${t('overgeslagen')}</span> <span class="tag warn">⚠ ${plural(c.problem, t('probleem'), t('problemen'))}</span></p>
     ${c.problem || c.oor || c.skipped ? `<pre class="summary">${esc(runSummary(run))}</pre>` : `<p>${t('Alles in orde.')}</p>`}
     ${run.maradDone ? `<p class="okbox">🔧 ${t('{n} MARAD-taken afgemeld (Onderhoud → Afgemeld). Nog zelf invoeren in MARAD.', { n: run.maradDone })}</p>` : ''}
-    <div class="stack">${isCrew() || run.notify ? `<button class="btn ok big" data-act="sendReport" data-id="${run.id}">${t('📨 Stuur rapport')}</button>` : ''}<button class="btn ${isCrew() ? '' : 'primary big'}" data-act="shareSummary" data-id="${run.id}">${t('📤 Rapport delen')}</button><div class="row"><button class="btn" data-act="exportRun" data-id="${run.id}" data-f="csv">${t('⬇ CSV')}</button><button class="btn" data-act="exportRun" data-id="${run.id}" data-f="json">${t('⬇ JSON')}</button></div><button class="btn ghost big" data-act="runClose">${t('Sluiten')}</button></div></div>`;
+    ${autoRep ? `<p class="muted small" id="repStat">${t('Rapport wordt klaargezet…')}</p>` : ''}
+    <div class="stack">${isCrew() ? '' : `<div class="row"><button class="btn" data-act="exportRun" data-id="${run.id}" data-f="csv">${t('⬇ CSV')}</button><button class="btn" data-act="exportRun" data-id="${run.id}" data-f="json">${t('⬇ JSON')}</button></div>`}<button class="btn ghost big" data-act="runClose">${t('Sluiten')}</button></div></div>`;
 }
 
 // ---------- acties ----------
@@ -814,7 +799,7 @@ const actions = {
   langMenu: () => openSheet(`<h2>${t('🌐 Taal · Language · Bahasa')}</h2><div class="stack">${Object.entries(LANGS).map(([k, v]) => `<button class="btn big ${k === getLang() ? 'primary' : ''}" data-act="setLang" data-v="${k}">${v.flag} ${v.name}</button>`).join('')}</div>`),
   goRanks: () => { closeSheet(); view.rank = null; go('rangen', { rank: null }); },
   rankOpen: (a) => go('rangen', { rank: a.dataset.v }),
-  rankShareRoute: (a) => { const r = route(a.dataset.id); if (!r) return; r.intendedRank = a.dataset.rank; save(); openShare(r); },
+  rankShareRoute: (a) => { const r = route(a.dataset.id); if (!r) return; r.intendedRank = a.dataset.rank; save(); sendRouteSheet(r); },
   profileEdit: () => { closeSheet(); openProfile({ first: false }); },
   pfLang: (a) => { const L = a.dataset.v; if (PF) PF.name = $('#pfName')?.value ?? PF.name; state.settings.lang = L; save(); setLang(L); renderProfile(); render(); },
   pfRank: (a) => { if (PF) { PF.name = $('#pfName')?.value ?? PF.name; PF.rank = a.dataset.v; } $$('#profile .rankcard').forEach((b) => { const on = b === a; b.classList.toggle('on', on); b.setAttribute('aria-checked', on); }); const e = $('#pfErr'); if (e) e.hidden = true; a.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); },
@@ -857,19 +842,8 @@ const actions = {
   saveStep: saveDraft,
   autoOrder: () => { const r = route(view.routeId); r.steps = orderSteps(r.steps, state, $('#strategy').value); touch(r); render(); toast(t('Nieuwe volgorde voorgesteld')); },
   routeMapView: (a) => { view.mapMode = a.dataset.v; render(); },
-  shareRoute: (a) => openShare(route(a.dataset.id)),
-  shLink: async () => {
-    const text = $('#shText').value, url = sheetCtx.link;
-    if (navigator.share) { try { await navigator.share({ title: t('Route ') + sheetCtx.route.name, text, url }); logSend('link'); toast(t('Gedeeld')); return; } catch (e) { if (e.name === 'AbortError') return; } }
-    await copyText(text + '\n' + url); logSend('link');
-  },
-  shFile: async () => {
-    const r = sheetCtx.route;
-    const res = await shareFile(`route-${slug(r.name)}.json`, JSON.stringify(routePackage(state, r, sheetCtx.to), null, 2), 'application/json', t('Route ') + r.name, $('#shText').value);
-    if (res !== 'cancel') logSend('bestand');
-  },
-  shCopy: async () => { await copyText($('#shText').value + '\n' + sheetCtx.link); logSend('kopie'); },
-  shLog: (a) => { logSend(a.dataset.via); return 'default'; },
+  shareRoute: (a) => sendRouteSheet(route(a.dataset.id)),
+  sendTo: (a) => deliverTo(route(a.dataset.id), state.contacts.find((x) => x.id === a.dataset.cid)),
   doImport: (a) => {
     const pkg = sheetCtx.pkg;
     if (pkg.notify?.topic && $('#adoptTopic')?.checked) { state.settings.ntfyTopic = pkg.notify.topic; state.settings.ntfyServer = pkg.notify.server || 'https://ntfy.sh'; state.settings.ntfyTopicAuto = false; save(); }
@@ -878,7 +852,7 @@ const actions = {
   importFile: () => $('#fileImport').click(),
   startRun: (a) => startRun(a.dataset.id),
   resumeRun: () => openRun(),
-  abortRun: () => { if (!confirm(t('Lopende ronde afbreken? Ingevoerde gegevens gaan verloren.'))) return; state.activeRun = null; save(); render(); },
+  abortRun: () => { if (!confirm(t('Lopende ronde afbreken? Ingevoerde gegevens gaan verloren.'))) return; LINK.progressEvent('aborted', state.activeRun); state.activeRun = null; save(); render(); },
   runPause: () => { LINK.progressEvent('paused'); closeRun(); toast(t('Ronde gepauzeerd – ga verder via Routes')); },
   runClose: () => { closeRun(); },
   runMapToggle: () => { const ar = state.activeRun; if (!ar) return; ar.mapView = ar.mapView === 'top' ? 'side' : 'top'; save(); const s = ar.route.steps[ar.idx]; $('.run-map').innerHTML = runMap(ar, curLoc(ar, s)); },
@@ -907,11 +881,6 @@ const actions = {
   delRun: (a) => { if (!confirm(t('Ronde uit historie verwijderen?'))) return; state.runs = state.runs.filter((x) => x.id !== a.dataset.id); save(); go('historie'); },
   exportRun: (a) => { const run = state.runs.find((x) => x.id === a.dataset.id); exportRuns([run], a.dataset.f, 'ronde-' + slug(run.routeName)); },
   exportAll: (a) => exportRuns(state.runs, a.dataset.f, 'rondes-' + slug(state.shipName)),
-  shareSummary: async (a) => {
-    const text = runSummary(state.runs.find((x) => x.id === a.dataset.id));
-    if (navigator.share) { try { await navigator.share({ title: t('Rapport ronde'), text }); return; } catch (e) { if (e.name === 'AbortError') return; } }
-    copyText(text);
-  },
   // kaart
   mapMode: (a) => { view.mapMode = a.dataset.v; render(); },
   mapLoc: (a) => {
@@ -956,13 +925,13 @@ const actions = {
   // personen
   editContact: (a) => {
     const c = state.contacts.find((x) => x.id === a.dataset.id) || { id: '', name: '', phone: '', email: '' };
-    openSheet(`<h2>${c.id ? t('Persoon bewerken') : t('Nieuwe persoon')}</h2><label>${t('Naam')}<input id="cName" value="${esc(tx(c, 'name'))}"></label><label>${t('Telefoon (WhatsApp)')}<input id="cPhone" type="tel" value="${esc(c.phone)}" placeholder="+31 6…"></label><label>${t('E-mail')}<input id="cEmail" type="email" value="${esc(c.email)}"></label><label>${t('Functie (optioneel)')}<input id="cFunc" list="rankList" value="${esc(c.func || '')}" placeholder="${t('Bijv. 2nd Officer')}" autocapitalize="words"><datalist id="rankList">${MT.rankNames().map((r) => `<option value="${esc(r)}">`).join('')}</datalist></label><p class="muted small">${t('Met een functie stelt de app deze persoon voor bij routes voor die functie.')}</p><div class="row sticky">${c.id ? `<button class="btn danger" data-act="delContact">${t('Verwijderen')}</button>` : ''}<button class="btn ghost" data-act="closeSheet">${t('Annuleren')}</button><button class="btn primary" data-act="saveContact">${t('Opslaan')}</button></div>`, { id: c.id });
+    openSheet(`<h2>${c.id ? t('Persoon bewerken') : t('Nieuwe persoon')}</h2><label>${t('Naam')}<input id="cName" value="${esc(tx(c, 'name'))}"></label>${c.inbox ? `<p class="okbox small">🔗 ${t('Gekoppeld – lijstjes komen direct in zijn app.')}</p>` : `<p class="muted small">${t('Nog niet gekoppeld. Koppelen gaat via Voortgang → Iemand koppelen.')}</p>`}<label>${t('Functie (optioneel)')}<input id="cFunc" list="rankList" value="${esc(c.func || '')}" placeholder="${t('Bijv. 2nd Officer')}" autocapitalize="words"><datalist id="rankList">${MT.rankNames().map((r) => `<option value="${esc(r)}">`).join('')}</datalist></label><p class="muted small">${t('Met een functie stelt de app deze persoon voor bij routes voor die functie.')}</p><div class="row sticky">${c.id ? `<button class="btn danger" data-act="delContact">${t('Verwijderen')}</button>` : ''}<button class="btn ghost" data-act="closeSheet">${t('Annuleren')}</button><button class="btn primary" data-act="saveContact">${t('Opslaan')}</button></div>`, { id: c.id });
   },
   saveContact: () => {
     const name = $('#cName').value.trim(); if (!name) return toast(t('Naam is verplicht'));
     let c = state.contacts.find((x) => x.id === sheetCtx.id);
     if (!c) { c = { id: 'c-' + rid() }; state.contacts.push(c); }
-    Object.assign(c, { name, phone: $('#cPhone').value.trim(), email: $('#cEmail').value.trim(), func: $('#cFunc').value.trim() }); save(); closeSheet(); render();
+    Object.assign(c, { name, func: $('#cFunc').value.trim() }); save(); closeSheet(); render();
   },
   delContact: () => { state.contacts = state.contacts.filter((c) => c.id !== sheetCtx.id); save(); closeSheet(); render(); },
   backup: async () => {
@@ -1073,7 +1042,7 @@ async function checkHash() {
     const pkg = await readHashPayload();
     if (!pkg) return;
     history.replaceState(null, '', location.pathname + location.search);
-    // iPhone: een link uit WhatsApp opent in Safari, niet in de app op het beginscherm (eigen opslag!)
+    // iPhone: een (oude) gedeelde link opent in Safari, niet in de app op het beginscherm (eigen opslag!)
     if (isIOS() && !isStandalone() && !state.settings.iosUseSafari) return iosLinkSheet(pkg, raw);
     if (pkg.kind === 'route') importSheet(pkg); else if (pkg.kind === 'report') autoImportReport(pkg, 'link');
   } catch (e) { console.warn(e); toast(t('Kon de gedeelde route niet lezen') + (typeof DecompressionStream === 'undefined' ? ' – ' + t('deze browser is te oud (iOS 16.4+ nodig)') : '')); }
@@ -1319,7 +1288,7 @@ function isForMe(r, rank) { const me = state.settings.userName; if (r.intendedNa
 function crewRouteCard(r, rank) {
   const nLoc = new Set(r.steps.map((s) => s.locationId)).size;
   const mine = isForMe(r, rank);
-  return `<article class="card route ${mine ? 'forme' : ''}"><div class="tap" data-act="openRoute" data-id="${r.id}">${mine ? `<span class="tag forme">⭐ ${t('Voor jou')} · ${esc(rankLabel(r.intendedRank || rank))}</span>` : r.intendedRank ? `<span class="tag">🎖 ${t('voor {rank}', { rank: esc(rankLabel(r.intendedRank)) })}</span>` : ''}<h2>${esc(tx(r, 'name'))}</h2><p>${plural(r.steps.length, t('taak'), t('taken'))} · ${plural(nLoc, t('locatie'), t('locaties'))}${r.from ? ` · ${t('van {name}', { name: `<b>${esc(r.from)}</b>` })}` : ''}</p>${r.description ? `<p class="muted">${esc(tx(r, 'description'))}</p>` : ''}</div>
+  return `<article class="card route ${mine ? 'forme' : ''}"><div class="tap" data-act="openRoute" data-id="${r.id}">${mine ? `<span class="tag forme">⭐ ${t('Voor jou')} · ${esc(rankLabel(r.intendedRank || rank))}</span>` : r.intendedRank ? `<span class="tag">🎖 ${t('voor {rank}', { rank: esc(rankLabel(r.intendedRank)) })}</span>` : ''}<h2>${esc(tx(r, 'name'))}</h2><p>${plural(r.steps.length, t('taak'), t('taken'))} · ${plural(nLoc, t('locatie'), t('locaties'))}${r.from ? ` · ${t('van {name}', { name: `<b>${esc(r.from)}</b>` })}` : ''}</p>${r.description ? `<p class="muted">${esc(tx(r, 'description'))}</p>` : ''}${r.stepsDone?.length ? `<p class="okc small">✔ ${t('{a} van {b} al afgetekend', { a: r.stepsDone.length, b: r.steps.length })}</p>` : ''}</div>
       <div class="stack"><button class="btn ok big" data-act="startRun" data-id="${r.id}" ${r.steps.length ? '' : 'disabled'}>${t('▶ Start ronde')}</button></div></article>`;
 }
 // Bemanning: kale startpagina per rang (begroeting, ontvangen rondes, evt. vaste rondes, olie-knoppen).
@@ -1329,13 +1298,17 @@ function viewCrewRoutes() {
   h += `<p class="shipsub rankline">${name ? `<span class="rankchip">${RANK_ICON[rank] || '👤'} ${esc(rankLabel(rank))}</span> ` : ''}🚢 ${esc(state.shipName)}</p>`;
   h += resumeCard() + installBanner();
   // alleen ontvangen routes (geen demo's); voor mijn rang bovenaan, voor andere rangen ingeklapt
-  const recv = [...state.routes.filter((r) => r.importedAt)].reverse();
+  const recvAll = [...state.routes.filter((r) => r.importedAt)].reverse();
+  const recv = recvAll.filter((r) => !r.doneAt); // v1.13: afgeronde lijstjes zijn geen open werk meer
+  const doneR = recvAll.filter((r) => r.doneAt).sort((a, b) => b.doneAt.localeCompare(a.doneAt));
   const forMe = recv.filter((r) => (!r.intendedRank && !r.intendedName) || isForMe(r, rank)).sort((a, b) => isForMe(b, rank) - isForMe(a, rank));
   const other = recv.filter((r) => !forMe.includes(r));
   h += `<div class="list">`;
-  if (!forMe.length) h += `<div class="emptystate"><p class="big">📭</p><p><b>${t('Nog geen ronde ontvangen.')}</b></p><p class="muted">${t('Open de link die je via WhatsApp krijgt.')}</p>${state.settings.inboxLastAt ? '' : `<button class="btn primary big" data-act="goPair">🔗 ${t('Koppelen met Beheer')}</button><p class="muted small">${t('Na koppelen komen lijstjes vanzelf in je app – zonder WhatsApp.')}</p>`}</div>`;
+  if (!forMe.length && doneR.length) h += `<div class="emptystate alldone"><p class="big">✅</p><p><b>${t('Alles afgerond.')}</b></p><p class="muted">${t('Lijstjes van Beheer verschijnen hier vanzelf.')}</p></div>`;
+  else if (!forMe.length) h += `<div class="emptystate"><p class="big">📭</p><p><b>${t('Nog geen ronde ontvangen.')}</b></p><p class="muted">${t('Lijstjes van Beheer verschijnen hier vanzelf.')}</p>${state.settings.inboxLastAt ? '' : `<button class="btn primary big" data-act="goPair">🔗 ${t('Koppelen met Beheer')}</button><p class="muted small">${t('Na koppelen komen lijstjes vanzelf in je app – zonder WhatsApp.')}</p>`}</div>`;
   h += forMe.map((r) => crewRouteCard(r, rank)).join('') + `</div>`;
-  if (trainee) h += `<p class="infobox">🎓 ${t('Je begeleider stuurt je een ronde via WhatsApp. Open die link; de ronde verschijnt dan hier.')}</p>`;
+  if (trainee) h += `<p class="infobox">🎓 ${t('Je begeleider plaatst rondes direct in je app; ze verschijnen dan hier.')}</p>`;
+  if (doneR.length) h += `<details class="card crewdone"><summary>✅ ${t('Afgerond ({n})', { n: doneR.length })}</summary><ul class="locs">${doneR.slice(0, 20).map((r) => `<li data-act="openRoute" data-id="${r.id}"><span>✔ ${esc(tx(r, 'name'))}</span><small>${fmtDT(r.doneAt)}</small></li>`).join('')}</ul></details>`;
   if (other.length) h += `<details class="card otherranks"><summary>${t('Voor andere rangen ({n})', { n: other.length })}</summary><div class="list">${other.map((r) => crewRouteCard(r, rank)).join('')}</div></details>`;
   // v1.10: bemanning ziet géén pool met open MARAD-taken – alleen de lijsten die Beheer doorstuurt (afvinken).
   h += OIL.crewCard(); // v1.12.1: ook stagiairs vullen olie bij
@@ -1399,7 +1372,7 @@ function saveProfile() {
 // ---------- Rangen (Beheer) ----------
 function viewRanks() {
   if (view.rank) return viewRankPage(view.rank);
-  let h = header(t('Rangen'), true) + `<p class="muted">${t('Tik op een rang om zijn pagina te openen: vaste rondes klaarzetten en met één tik via WhatsApp sturen.')}</p>`;
+  let h = header(t('Rangen'), true) + `<p class="muted">${t('Tik op een rang om zijn pagina te openen: vaste rondes klaarzetten en direct naar een gekoppeld persoon sturen.')}</p>`;
   const ov = MT.rankOverview();
   if (ov[0].rounds == null) h += `<section class="card"><p class="muted small">${t('Ontgrendel de MARAD-gegevens om per rang de vaste rondes en te-late taken te zien.')}</p><button class="btn primary" data-act="mUnlockSheet">${t('🔓 Ontgrendelen')}</button></section>`;
   h += `<div class="rankgrid ov">${ov.map((o) => `<button class="rankcard ov ${o.rank === myRank() ? 'me' : ''}" data-act="rankOpen" data-v="${esc(o.rank)}"><span class="ri">${RANK_ICON[o.rank]}</span><b>${esc(rankLabel(o.rank))}</b>
@@ -1411,11 +1384,11 @@ function viewRankPage(rank) {
   let h = header(`${RANK_ICON[rank] || ''} ${rankLabel(rank)}`, true);
   h += `<p class="shipsub">${rank === 'Stagiair' ? t('Stagiairs hebben geen eigen MARAD-taken.') : ov.rounds == null ? '' : t('{a} taken · {b} te laat · {c} vaste rondes', { a: ov.tasks, b: ov.overdue, c: ov.rounds })}</p>`;
   if (rank === '2nd Officer') h += `<p class="muted small">ℹ️ ${t('Taken met de MARAD-functie "Junior Officer" horen hier ook bij.')}</p>`;
-  if (rank === 'Stagiair') h += `<p class="infobox">🎓 ${t('Geef een stagiair een ronde: kies hieronder een vaste ronde of een eigen ronde en stuur hem via WhatsApp. Op het toestel van de stagiair staat hij dan bovenaan.')}</p>`;
+  if (rank === 'Stagiair') h += `<p class="infobox">🎓 ${t('Geef een stagiair een ronde: kies hieronder een vaste ronde of een eigen ronde en stuur hem naar de gekoppelde stagiair. Op zijn toestel staat hij dan bovenaan.')}</p>`;
   if (!state.maint?.tasks) h += `<section class="card"><button class="btn primary" data-act="mUnlockSheet">${t('🔓 Ontgrendelen')}</button></section>`;
   else h += `<h3 class="sec">📌 ${t('Vaste rondes')}</h3>` + MT.rankRoundsHTML(rank);
   const own = state.routes.filter((r) => !r.templateId && !r.importedAt && r.steps.length);
-  if (own.length) h += `<h3 class="sec">🧭 ${t('Eigen rondes')}</h3><div class="list compact">${own.map((r) => `<article class="card route mini"><div><b>${esc(tx(r, 'name'))}</b><small>${plural(r.steps.length, t('taak'), t('taken'))}${normRank(r.intendedRank) === rank ? ' · ⭐' : ''}</small></div><button class="btn small wa" data-act="rankShareRoute" data-id="${r.id}" data-rank="${esc(rank)}">${t('📲 Delen')}</button></article>`).join('')}</div>`;
+  if (own.length) h += `<h3 class="sec">🧭 ${t('Eigen rondes')}</h3><div class="list compact">${own.map((r) => `<article class="card route mini"><div><b>${esc(tx(r, 'name'))}</b><small>${plural(r.steps.length, t('taak'), t('taken'))}${normRank(r.intendedRank) === rank ? ' · ⭐' : ''}</small></div><button class="btn small" data-act="rankShareRoute" data-id="${r.id}" data-rank="${esc(rank)}">${t('📤 Versturen')}</button></article>`).join('')}</div>`;
   return h;
 }
 
@@ -1434,27 +1407,7 @@ function viewCrewMore() {
   return h;
 }
 
-// ---------- WhatsApp per persoon (beheer, route-scherm) ----------
-const waNum = (phone) => (phone || '').replace(/[^\d]/g, '').replace(/^00/, '').replace(/^0(?=6)/, '31');
-function waSection(r) {
-  if (!r.steps.length) return '';
-  const cs = state.contacts;
-  return `<section class="card wasec"><h3>${t('📲 Direct versturen via WhatsApp')}</h3><div class="wabtns">${cs.map((c) => waNum(c.phone)
-    ? `<a class="btn wa" href="#" target="_blank" rel="noopener" data-wa="${c.id}" data-act="waSent" data-id="${c.id}">🟢 ${esc(tx(c, 'name'))}</a>`
-    : `<button class="btn ghost small" data-act="editContact" data-id="${c.id}">${t('{name}: telefoon toevoegen', { name: esc(tx(c, 'name')) })}</button>`).join('')}<button class="btn ghost small" data-act="editContact">${t('+ Persoon')}</button></div>${r.assignee ? `<p class="muted small">${t('Bestemd voor {name}', { name: esc(r.assignee) })}${r.sentLog?.length ? ' · ' + t('laatst verstuurd {d}', { d: fmtDT(r.sentLog[r.sentLog.length - 1].at) }) : ''}</p>` : ''}</section>`;
-}
-async function fillWaLinks() {
-  const els = $$('a[data-wa]'); if (!els.length) return;
-  const r = route(view.routeId); if (!r) return;
-  for (const a of els) {
-    const c = state.contacts.find((x) => x.id === a.dataset.wa); if (!c) continue;
-    const link = await buildShareLink(routePackage(state, r, c.name));
-    const txt = t('Route "{route}" voor {name} – {n} ({ship}). Open de link om de route in de app te zetten:', { route: tx(r, 'name'), name: c.name, n: plural(r.steps.length, t('taak'), t('taken')), ship: state.shipName });
-    a.href = `https://wa.me/${waNum(c.phone)}?text=${encodeURIComponent(txt + '\n' + link)}`;
-  }
-}
 Object.assign(actions, {
-  waSent: (a) => { const r = route(view.routeId); const c = state.contacts.find((x) => x.id === a.dataset.id); if (!r || !c) return; r.assignee = c.name; (r.sentLog ??= []).push({ to: c.name, at: new Date().toISOString(), via: 'whatsapp' }); save(); setTimeout(render, 300); },
   crewDelRoute: (a) => { if (!confirm(t('Route verwijderen?'))) return; state.routes = state.routes.filter((r) => r.id !== a.dataset.id); save(); closeSheet(); render(); },
 });
 
@@ -1476,34 +1429,28 @@ function reportNtfyText(run, link) {
   return { title: `📨 Rapport: ${run.routeName} – ${run.by || 'bemanning'}`, message: lines.join('\n').slice(0, 3800) };
 }
 /* i18n-skip-end */
-async function sendReport(run) {
+/** Rapport naar het meldingskanaal van Beheer (via de outbox, ook offline). Idempotent: één keer per ronde. */
+async function queueReport(run) {
   const r = route(run.routeId);
   if (!run.by && state.settings.userName) run.by = state.settings.userName;
-  if (!run.by && askProfile(() => sendReport(run))) return;
+  const topic = run.notify?.topic || r?.notifyTopic || state.settings.ntfyTopic;
+  const server = run.notify?.server || r?.notifyServer || state.settings.ntfyServer || 'https://ntfy.sh';
+  if (run.reportQueuedAt) return true;
+  if (!topic) return false;
   const pkg = reportPackage(state, run, r);
   const link = await buildShareLink(pkg);
   const json = JSON.stringify(pkg);
   const fname = `rapport-${slug(run.routeName)}-${run.finishedAt.slice(0, 10)}.json`;
-  // 1) samenvatting naar het meldingskanaal van de beheerder (via outbox, ook offline)
-  const topic = run.notify?.topic || r?.notifyTopic || state.settings.ntfyTopic;
-  const server = run.notify?.server || r?.notifyServer || state.settings.ntfyServer || 'https://ntfy.sh';
-  if (!run.reportQueuedAt && topic) {
-    const m = reportNtfyText(run, link);
-    await queueItem({ id: 'm-' + rid(), kind: 'rapport', createdAt: new Date().toISOString(), by: run.by || '', text: '', title: m.title, message: m.message, priority: 3, tags: ['clipboard', 'white_check_mark'], click: link.length < 3500 ? link : undefined, topic, server, status: 'pending', photos: [{ name: fname, blob: new Blob([json], { type: 'application/json' }), title: '📎 ' + m.title, tags: 'paperclip' }] });
-    // grote rapporten passen niet in één ntfy-bericht (link > 3500 tekens): het rapport zelf in delen meesturen
-    if (link.length >= 3500) await queueQuiet(await LINK.chunkItems(pkg, { kind: 'report', aid: run.id, ver: 1, topic, server, title: '📨 ' + run.routeName, by: run.by || '' }));
-    run.reportQueuedAt = new Date().toISOString(); save();
-  }
-  // 2) zelf delen via WhatsApp / deelmenu
-  const rt = run.replyTo || r?.replyTo || {};
-  const to = rt.name || r?.from || '';
-  const txt = t('Rapport ronde "{route}" – {name}. Open de link om het rapport te importeren:', { route: run.routeName, name: run.by || '' });
-  const ph = waNum(rt.phone);
-  openSheet(`<h2>${t('📨 Rapport versturen')}</h2><p><b>${esc(run.routeName)}</b> · ${fmtDT(run.finishedAt)}</p>
-    <p class="${run.reportQueuedAt ? 'okbox' : 'warnbox'}">${run.reportQueuedAt ? (navigator.onLine ? t('🔔 Samenvatting gaat naar het meldingskanaal van {name}.', { name: esc(to || t('de beheerder')) }) : t('📴 Samenvatting staat in de outbox en gaat vanzelf weg zodra er internet is.')) : t('Geen meldingskanaal bekend – deel het rapport hieronder.')}</p>
-    <div class="stack">${ph ? `<a class="btn ok big" href="https://wa.me/${ph}?text=${encodeURIComponent(txt + '\n' + link)}" target="_blank" rel="noopener" data-act="repSent" data-id="${run.id}">🟢 ${t('WhatsApp naar {name}', { name: esc(to || '') })}</a>` : ''}
-    <button class="btn ${ph ? '' : 'primary big'}" data-act="repShare">${t('📤 Delen (WhatsApp, mail, …)')}</button><button class="btn" data-act="repFile">${t('📄 Als bestand (.json)')}</button><button class="btn ghost" data-act="repCopy">${t('🔗 Kopieer link')}</button></div>
-    <p class="muted small">${t('Link: {n} tekens', { n: link.length })}</p>`, { report: { run, link, txt, json, fname } });
+  const m = reportNtfyText(run, link);
+  await queueItem({ id: 'm-' + rid(), kind: 'rapport', createdAt: new Date().toISOString(), by: run.by || '', text: '', title: m.title, message: m.message, priority: 3, tags: ['clipboard', 'white_check_mark'], click: link.length < 3500 ? link : undefined, topic, server, status: 'pending', photos: [{ name: fname, blob: new Blob([json], { type: 'application/json' }), title: '📎 ' + m.title, tags: 'paperclip' }] });
+  // grote rapporten passen niet in één ntfy-bericht (link > 3500 tekens): het rapport zelf in delen meesturen
+  if (link.length >= 3500) await queueQuiet(await LINK.chunkItems(pkg, { kind: 'report', aid: run.id, ver: 1, topic, server, title: '📨 ' + run.routeName, by: run.by || '' }));
+  run.reportQueuedAt = new Date().toISOString(); save();
+  return true;
+}
+function repStatHTML(run, ok) {
+  if (!ok) return `<p class="warnbox" id="repStat">${t('Nog niet gekoppeld met Beheer: het rapport is alleen op dit toestel bewaard. Koppel via Meer → Koppelen met Beheer.')}</p>`;
+  return `<p class="okbox" id="repStat">${navigator.onLine ? t('📨 Rapport gaat automatisch naar Beheer.') : t('📴 Rapport staat in de outbox en gaat vanzelf naar Beheer zodra er internet is.')}</p>`;
 }
 function reportSheet(pkg) {
   if (isCrew()) return toast(t('Rapporten importeren kan alleen in Beheer-modus (Meer → Modus).'), 4500);
@@ -1545,7 +1492,7 @@ async function importOilPkg(pkg, via, quiet) {
   if (!quiet) { closeSheet(); toast(state.maint?.oilRef ? t('Olie-registratie van {name} verwerkt', { name: pkg.by || '?' }) : t('Olie-registratie ontvangen – wordt verwerkt na ontgrendelen'), 4000); go('olie'); }
   return 'oil';
 }
-/** Bemanning: olie-registratie via de outbox naar het meldingskanaal (offline: wachtrij). Zonder kanaal: delen via WhatsApp. */
+/** Bemanning: olie-registratie via de outbox naar het meldingskanaal (offline: wachtrij). Zonder kanaal: alleen lokaal + koppel-hint. */
 async function sendOil(ev, sum) {
   const st = state.settings; const name = ev.by || st.userName || 'bemanning';
   (state.oilLog ||= []).push(ev); if (state.oilLog.length > 200) state.oilLog = state.oilLog.slice(-200); save();
@@ -1553,8 +1500,7 @@ async function sendOil(ev, sum) {
   const link = await buildShareLink(pkg);
   const ar = state.activeRun; const topic = ar?.route.notifyTopic || st.ntfyTopic;
   if (!topic) {
-    const txt = `${sum.title}\n${sum.text}\n${link}`;
-    openSheet(`<h2>🛢 ${t('Opgeslagen')}</h2><p class="warnbox">${t('Er is geen meldingskanaal ingesteld. Stuur deze registratie via WhatsApp naar de beheerder:')}</p><div class="stack"><a class="btn wa big" href="https://wa.me/?text=${encodeURIComponent(txt)}" target="_blank" rel="noopener">🟢 WhatsApp</a></div>`);
+    openSheet(`<h2>🛢 ${t('Opgeslagen')}</h2><p class="warnbox">${t('Opgeslagen op dit toestel. Nog niet gekoppeld met Beheer, dus deze registratie gaat nog niet automatisch mee. Koppel via Meer → Koppelen met Beheer.')}</p><div class="stack"><button class="btn primary" data-act="goPair">🔗 ${t('Koppelen met Beheer')}</button><button class="btn ghost" data-act="closeSheet">${t('Sluiten')}</button></div>`);
     return;
   }
   /* i18n-skip-start */
@@ -1612,22 +1558,14 @@ async function pollNtfy(manual = false) {
   return n;
 }
 Object.assign(actions, {
-  sendReport: (a) => sendReport(state.runs.find((x) => x.id === a.dataset.id)),
-  repSent: () => { const run = sheetCtx.report.run; run.reportSentAt = new Date().toISOString(); save(); },
-  repShare: async () => {
-    const { run, link, txt } = sheetCtx.report;
-    if (navigator.share) { try { await navigator.share({ title: t('Rapport ronde'), text: txt, url: link }); run.reportSentAt = new Date().toISOString(); save(); toast(t('Gedeeld')); return; } catch (e) { if (e.name === 'AbortError') return; } }
-    await copyText(txt + '\n' + link); run.reportSentAt = new Date().toISOString(); save();
-  },
-  repFile: async () => { const { run, json, fname, txt } = sheetCtx.report; const res = await shareFile(fname, json, 'application/json', t('Rapport ronde'), txt); if (res !== 'cancel') { run.reportSentAt = new Date().toISOString(); save(); } },
-  repCopy: async () => { const { run, link, txt } = sheetCtx.report; await copyText(txt + '\n' + link); run.reportSentAt = new Date().toISOString(); save(); },
+  sendReport: async (a) => { const run = state.runs.find((x) => x.id === a.dataset.id); if (!run) return; const ok = await queueReport(run); toast(ok ? t('📨 Rapport gaat automatisch naar Beheer.') : t('Nog niet gekoppeld met Beheer.'), 3500); render(); },
   repImport: async () => {
     const pkg = sheetCtx.repPkg; await MT.ensureMaint();
     const m = importReport(pkg, 'link'); closeSheet();
     toast(m.done ? t('Rapport geïmporteerd · {n} MARAD-taken afgemeld', { n: m.done }) : t('Rapport geïmporteerd'), 4000);
     go('historie', { runId: pkg.runId });
   },
-  reportImport: () => openSheet(`<h2>${t('📨 Rapport importeren')}</h2><p class="muted">${t('Plak de link uit WhatsApp of de melding, of kies het rapportbestand (.json).')}</p><textarea id="repText" rows="3" placeholder="https://…#report=…"></textarea><div class="stack"><button class="btn primary" data-act="repFromText">${t('Link lezen')}</button><button class="btn" data-act="importFile">${t('📄 Bestand kiezen')}</button></div>`),
+  reportImport: () => openSheet(`<h2>${t('📨 Rapport importeren')}</h2><p class="muted">${t('Rapporten komen normaal vanzelf binnen. Heb je nog een oude rapport-link of -bestand? Plak de link hier of kies het bestand (.json).')}</p><textarea id="repText" rows="3" placeholder="https://…#report=…"></textarea><div class="stack"><button class="btn primary" data-act="repFromText">${t('Link lezen')}</button><button class="btn" data-act="importFile">${t('📄 Bestand kiezen')}</button></div>`),
   repFromText: async () => {
     const txt = $('#repText').value.trim();
     try { const pkg = txt.startsWith('{') ? JSON.parse(txt) : await readHashPayload(txt); if (pkg?.kind === 'report') return autoImportReport(pkg, 'paste'); if (pkg?.kind === 'route') return importSheet(pkg); } catch (e) { console.warn(e); }
@@ -1655,7 +1593,7 @@ let lastPoll = 0;
 function maybePoll() {
   if (!navigator.onLine || Date.now() - lastPoll < 20000) return;
   lastPoll = Date.now();
-  if (isCrew()) LINK.pollInbox(false); else { pollNtfy(false); LINK.retry(); }
+  if (isCrew()) LINK.pollInbox(false); else { pollNtfy(false).then(() => LINK.syncDone()); LINK.retry(); }
 }
 setInterval(() => { if (document.visibilityState === 'visible') maybePoll(); }, 120000);
 Object.assign(actions, {
@@ -1671,13 +1609,13 @@ Object.assign(actions, {
 });
 
 // ---------- onderhoud (MARAD) ----------
-const MT = initMaint({ oilApply: (run) => OIL.applyRun(run), legacyMaint, state, save, rid, esc, header, openSheet, closeSheet, toast, render: () => render(), go: (...x) => go(...x), shareFile, csvCell, fmtDT, plural, locSelect, loc, tx, STRATEGIES, orderSteps, waNum: (p) => waNum(p), buildShareLink, routePackage, openShare: (r) => openShare(r) });
+const MT = initMaint({ oilApply: (run) => OIL.applyRun(run), legacyMaint, state, save, rid, esc, header, openSheet, closeSheet, toast, render: () => render(), go: (...x) => go(...x), shareFile, csvCell, fmtDT, plural, locSelect, loc, tx, STRATEGIES, orderSteps, buildShareLink, routePackage, deliverTo: (r, c) => deliverTo(r, c) });
 Object.assign(actions, MT.actions);
-const OIL = initOil({ askProfile: (fn) => askProfile(fn), state, save, rid, esc, header, openSheet, closeSheet, toast, render: () => render(), renderRun: () => renderRun(), shareFile, csvCell, fmtDT, tx, isCrew, copyText, persist: () => MT.persist(), openShare: (r) => openShare(r), sendOil: (ev, sum) => sendOil(ev, sum) });
+const OIL = initOil({ askProfile: (fn) => askProfile(fn), state, save, rid, esc, header, openSheet, closeSheet, toast, render: () => render(), renderRun: () => renderRun(), shareFile, csvCell, fmtDT, tx, isCrew, copyText, persist: () => MT.persist(), sendRouteSheet: (r) => sendRouteSheet(r), sendOil: (ev, sum) => sendOil(ev, sum) });
 Object.assign(actions, OIL.actions);
-const LINK = initLink({ state, save, esc, header, openSheet, closeSheet, toast, render: () => render(), go: (...x) => go(...x), view: () => view, rid, fmtDT, isCrew, copyText, queueQuiet, importPackage: (p, c) => importPackage(p, c), autoImportReport: (...x) => autoImportReport(...x), openShare: (r) => openShare(r) });
+const LINK = initLink({ state, save, esc, header, openSheet, closeSheet, toast, render: () => render(), go: (...x) => go(...x), view: () => view, rid, fmtDT, isCrew, copyText, queueQuiet, importPackage: (p, c) => importPackage(p, c), autoImportReport: (...x) => autoImportReport(...x) });
 Object.assign(actions, LINK.actions);
-const DIST = initDist({ LINK, state, save, esc, header, openSheet, closeSheet, toast, render: () => render(), go: (...x) => go(...x), view: () => view, MT, rid, fmtDT, openShare: (r) => openShare(r), tx: (o, k) => tx(o, k), loc: (id) => loc(id) });
+const DIST = initDist({ LINK, state, save, esc, header, openSheet, closeSheet, toast, render: () => render(), go: (...x) => go(...x), view: () => view, MT, rid, fmtDT, tx: (o, k) => tx(o, k), loc: (id) => loc(id) });
 Object.assign(actions, DIST.actions);
 
 // ---------- start ----------
@@ -1719,4 +1657,4 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   navigator.serviceWorker.register('./sw.js').then(() => (window.__swRegistered = true)).catch((e) => console.warn('SW', e));
 }
 refreshOutbox().then(() => flushNow());
-window.__app = { state, save, view: () => view, flushNow, refreshOutbox, MT, pollNtfy, LINK, isIOS, isStandalone, openProfile };
+window.__app = { state, save, view: () => view, flushNow, refreshOutbox, MT, pollNtfy, LINK, isIOS, isStandalone, openProfile, go: (...x) => go(...x) };

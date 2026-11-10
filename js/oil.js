@@ -294,7 +294,7 @@ function orderHTML() {
   let h = `<p class="muted small">${t('Alles onder het minimum uit de olielijst, aangevuld tot dat minimum. Merknamen: alle bekende aliassen.')}</p>`;
   if (!xs.length) return h + `<p class="okbox">✔ ${t('Alles boven het minimum.')}</p>`;
   h += `<div class="list">${xs.map((x) => `<article class="card oil low"><div class="ohead"><b>${esc(short(x.o))}</b><span class="oiltot">${fmtL(x.need)} L</span></div><small class="alias">${x.o.alias.slice(1).map(esc).join(' · ')}</small><p class="small">${t('voorraad {a} L · min {b} L', { a: fmtL(x.have), b: fmtL(x.min) })}${x.cans ? ` · ≈ ${x.cans} × ${t('Can 20 L')}` : x.o.bulk ? ` · ${t('bulk')}` : ''}${x.stale ? ` · <span class="muted">${t('lijst, verouderd')}</span>` : ''}</p></article>`).join('')}</div>`;
-  h += `<pre class="summary" id="orderTxt">${esc(orderText())}</pre><div class="row2"><a class="btn wa big" href="https://wa.me/?text=${encodeURIComponent(orderText())}" target="_blank" rel="noopener" data-act="oilOrderWa">🟢 WhatsApp</a><button class="btn big" data-act="oilOrderCopy">📋 ${t('Kopiëren')}</button></div>`;
+  h += `<pre class="summary" id="orderTxt">${esc(orderText())}</pre><div class="row2"><button class="btn big" data-act="oilOrderCopy">📋 ${t('Kopiëren')}</button></div>`;
   return h;
 }
 function hoursHTML() {
@@ -362,7 +362,7 @@ function refillSheet(ctx) {
   A.openSheet(`<h2>🛢 ${t('Olie bijgevuld')}</h2><p class="muted small">${t('Snelle aantekening: machine, liters, klaar.')}</p>
     ${r ? `${rec.length ? `<div class="flbl">${t('Recent')}</div><div class="qchips">${rec.map((id) => `<button class="chip ${id === m0?.id ? 'on' : ''}" data-act="oilQM" data-m="${id}">🔧 ${esc(mach(id).name)}</button>`).join('')}</div>` : ''}
       <label>${t('Machine')}<select id="orM">${machOpts(m0?.id)}</select></label><div id="orOil" class="infobox small">${oilLine(m0)}</div>`
-      : `<p class="warnbox small">${t('Nog geen olielijst op dit toestel. Vraag de beheerder om de olie-inventaris-route (WhatsApp-link); tot die tijd kun je machine en olie zelf typen.')}</p><label>${t('Machine')}<input id="orMt" autocomplete="off"></label><label>${t('Oliesoort')}<input id="orOt" autocomplete="off"></label>`}
+      : `<p class="warnbox small">${t('Nog geen olielijst op dit toestel. Vraag de beheerder om de olie-inventaris-route (die komt via de koppeling in je app); tot die tijd kun je machine en olie zelf typen.')}</p><label>${t('Machine')}<input id="orMt" autocomplete="off"></label><label>${t('Oliesoort')}<input id="orOt" autocomplete="off"></label>`}
     <label>${t('Liters')}<input id="orL" class="bignum" type="number" inputmode="decimal" step="any" min="0" placeholder="0"></label>
     <div class="qchips">${[5, 10, 20, 40].map((v) => `<button class="chip" data-act="oilQL" data-v="${v}">${v} L</button>`).join('')}</div>
     <label>${t('Aantekening (optioneel)')}<input id="orN" maxlength="140" autocomplete="off" placeholder="${t('bijv. lekje bij filter, na olieverversing…')}"></label>
@@ -497,7 +497,6 @@ export const actions = {
   },
   oilHoursEntered: () => { for (const r of Object.values(ST().hours)) for (const x of r) x.exported = true; A.persist(); A.render(); A.toast(t('Gemarkeerd als ingevoerd in MARAD')); },
   oilOrderCopy: async () => { await A.copyText(orderText()); },
-  oilOrderWa: () => {},
   oilInvRoute: () => {
     const st = A.state.settings; const now = Date.now();
     const r = { id: 'r-' + A.rid(), name: 'Olie-inventaris', description: 'Tel per locatie welke olie er staat.', assignee: '', createdAt: now, updatedAt: now, notifyTopic: st.ntfyTopic || '',
@@ -505,6 +504,6 @@ export const actions = {
       steps: LOCDEF.map((l) => ({ id: A.rid(), source: 'oil', locationId: l.locId, title: `Olie-inventaris: ${l.nl}`, instruction: 'Tik aan welke oliesoorten hier staan en vul liters of het aantal verpakkingen in. Staat er iets dat niet op de lijst staat? Tik op "+ Nieuwe soort".',
         tr: { en: { title: `Oil inventory: ${l.en}`, instruction: 'Tick which oils are stored here and enter litres or number of packages. Something not on the list? Tap "+ New type".' }, id: { title: `Inventaris oli: ${l.id_}`, instruction: 'Centang oli yang ada di sini dan isi liter atau jumlah kemasan. Ada yang tidak di daftar? Ketuk "+ Jenis baru".' } },
         fields: [{ id: 'oi', label: 'Olie-inventaris', type: 'oilinv', loc: l.id, tr: { en: { label: 'Oil inventory' }, id: { label: 'Inventaris oli' } } }, { id: 'or', label: 'Bijvullingen (optioneel)', type: 'oil', tr: { en: { label: 'Top-ups (optional)' }, id: { label: 'Penambahan (opsional)' } } }] })) };
-    r.oilRef = buildRef(); A.state.routes.push(r); A.save(); A.openShare(r);
+    r.oilRef = buildRef(); A.state.routes.push(r); A.save(); A.sendRouteSheet(r);
   },
 };

@@ -433,7 +433,7 @@ export function rankRoundsHTML(rank, { crew = false } = {}) {
   return xs.map(({ sg, soon, od }) => `<article class="card today k-fixed ${od ? 'has-od' : ''}" data-k="${A.esc(sg.key)}"><div class="thead"><h3>${kIcon(sg)} ${A.esc(sugName(sg))}</h3><p class="muted small">👤 ${A.esc(rankLabels(sg.ranks))} · ${periodLbl(sg.period)}</p></div>
       <p class="tcounts">${od ? `<span class="tag red">${t('{n} te laat', { n: od })}</span> ` : ''}<span class="tag orange">${t('{n} deze week', { n: Math.max(0, soon.length - od) })}</span> <small class="muted">${t('van {n} taken', { n: sg.tasks.length })}</small></p>
       ${crew ? `<button class="btn ok huge" data-act="tdStart" data-k="${A.esc(sg.key)}" ${soon.length ? '' : 'disabled'}>${t('▶ Start ronde')} <small>(${soon.length})</small></button>`
-    : `<div class="row"><button class="btn wa" data-act="sgSend" data-k="${A.esc(sg.key)}" data-rank="${A.esc(rank)}">${t('📲 Stuur naar {rank}', { rank: A.esc(rankLabel(rank)) })}</button><button class="btn small ghost" data-act="sgShow" data-k="${A.esc(sg.key)}">${t('☰ Taken bekijken')}</button></div>`}</article>`).join('');
+    : `<div class="row"><button class="btn primary" data-act="sgSend" data-k="${A.esc(sg.key)}" data-rank="${A.esc(rank)}">${t('📲 Stuur naar {rank}', { rank: A.esc(rankLabel(rank)) })}</button><button class="btn small ghost" data-act="sgShow" data-k="${A.esc(sg.key)}">${t('☰ Taken bekijken')}</button></div>`}</article>`).join('');
 }
 
 // ---------- Vandaag (startscherm Beheer) ----------
@@ -532,7 +532,6 @@ function onInput(e) {
 function onChange(e) {
   const el = e.target;
   if (el.dataset?.msel) { if (el.checked) sel.add(el.dataset.msel); else sel.delete(el.dataset.msel); const sb = $f('#mSelbar'); if (sb) sb.innerHTML = selbar(); }
-  if (el.id === 'sgLoc') fillSendLinks();
   if (el.id === 'mtLoc') { const x = M().tasks.find((y) => y.id === el.dataset.id); x.locId = el.value || null; x.locManual = true; S(); A.toast(t('Locatie gekoppeld')); }
 }
 function taskSheet(x) {
@@ -614,41 +613,27 @@ export function templateInfo(r) {
   const tp = r?.templateId && (A.state.templates || []).find((x) => x.id === r.templateId); if (!tp) return '';
   return `<section class="card tplcard"><p>🔁 <b>${t('Terugkerend sjabloon')}</b> · ${periodLbl(tp.period)}</p><p class="muted small">${t('Elke nieuwe {p} vult de app deze route opnieuw met de taken die dan aan de beurt zijn (na het openen van de app, als MARAD ontgrendeld is). Laatst ververst: {d}.', { p: periodNoun(tp.period), d: A.fmtDT(tp.lastRefresh) })}</p><div class="row"><button class="btn small" data-act="mTplRefresh" data-id="${tp.id}" ${M()?.tasks ? '' : 'disabled'}>${t('↻ Nu verversen')}</button><button class="btn small ghost" data-act="mTplStop" data-id="${tp.id}">${t('Sjabloon stoppen')}</button></div></section>`;
 }
-// ---------- versturen naar een persoon (WhatsApp) ----------
+// ---------- versturen naar een persoon (direct in zijn app, via de koppeling) ----------
 function sortContacts(ranks) {
   const rk = new Set((ranks || []).map((r) => normRank(r).toLowerCase()));
-  return A.state.contacts.map((c) => ({ ...c, match: !!c.func && rk.has(normRank(c.func).toLowerCase()) })).sort((a, b) => b.match - a.match);
+  return A.state.contacts.map((c) => ({ ...c, match: !!c.func && rk.has(normRank(c.func).toLowerCase()) })).sort((a, b) => b.match - a.match || !!b.inbox - !!a.inbox);
 }
 let SEND = null;
 function sendSheet(sg, intended = '') {
   const tasks = sg.due.length ? sg.due : sg.tasks;
   const nUn = tasks.filter((x) => !A.loc(x.locId)).length;
   const cs = sortContacts(intended ? [intended] : sg.ranks);
+  const ps = cs.filter((c) => c.inbox);
   SEND = { sg, tasks, id: 'r-' + A.rid(), intended: normRank(intended) || '' };
-  A.openSheet(`<h2>${t('📲 Stuur naar…')}</h2><p><b>${A.esc(sugName(sg))}</b> · ${t('{n} taken', { n: tasks.length })}${intended ? ` · 🎖 ${t('voor {rank}', { rank: A.esc(rankLabel(intended)) })}` : ''}</p>
+  A.openSheet(`<h2>${t('📤 Stuur naar…')}</h2><p><b>${A.esc(sugName(sg))}</b> · ${t('{n} taken', { n: tasks.length })}${intended ? ` · 🎖 ${t('voor {rank}', { rank: A.esc(rankLabel(intended)) })}` : ''}</p>
     ${nUn ? `<div class="warnbox">${t('{n} taken hebben nog geen locatie. Kies een locatie voor deze taken:', { n: nUn })}${A.locSelect(commonLoc(sg.tasks), 'id="sgLoc"', true)}</div>` : ''}
-    <div class="stack" id="sgList">${cs.map((c) => A.waNum(c.phone)
-      ? `<a class="btn wa ${c.match ? 'big' : ''}" href="#" target="_blank" rel="noopener" data-act="sgWa" data-cid="${c.id}">🟢 ${c.match ? '⭐ ' : ''}${A.esc(c.name)}${c.func ? ` <small>· ${A.esc(c.func)}</small>` : ''}</a>`
-      : `<button class="btn ghost small" data-act="editContact" data-id="${c.id}">${t('{name}: telefoon toevoegen', { name: A.esc(c.name) })}</button>`).join('')}</div>
-    ${cs.some((c) => c.match) ? `<p class="muted small">⭐ ${t('= functie past bij deze route ({f}).', { f: A.esc(rankLabels(sg.ranks)) })}</p>` : `<p class="muted small">${t('Tip: geef personen een functie (Meer → Personen), dan staat de juiste persoon bovenaan.')}</p>`}
-    <div class="row"><button class="btn small" data-act="editContact">${t('+ Persoon')}</button><button class="btn small" data-act="sgOther">${t('📤 Andere manier (link/bestand)')}</button></div>
-    <p class="muted small" id="sgInfo"></p>`, { sgSend: true });
-  fillSendLinks();
+    ${ps.length ? `<div class="stack" id="sgList">${ps.map((c) => `<button class="btn ${c.match ? 'primary big' : ''}" data-act="sgApp" data-cid="${c.id}">🔗 ${c.match ? '⭐ ' : ''}${A.esc(c.name)}${c.func ? ` <small>· ${A.esc(rankLabel(normRank(c.func)) || c.func)}</small>` : ''}</button>`).join('')}</div>` : `<p class="warnbox">${t('Nog niemand gekoppeld. Versturen kan alleen naar iemand die gekoppeld is.')}</p>`}
+    ${cs.some((c) => c.match && c.inbox) ? `<p class="muted small">⭐ ${t('= functie past bij deze route ({f}).', { f: A.esc(rankLabels(sg.ranks)) })}</p>` : ''}
+    <div class="row"><button class="btn small" data-act="pairSheet">🔗 ${t('Iemand koppelen')}</button><button class="btn small ghost" data-act="closeSheet">${t('Annuleren')}</button></div>`, { sgSend: true });
 }
 function sendRoute(c) {
   const r = buildRoute(SEND.tasks, { name: sugName(SEND.sg), assignee: c?.name || '', fallback: $f('#sgLoc')?.value || '' });
   r.id = SEND.id; if (SEND.intended) r.intendedRank = SEND.intended; return r;
-}
-async function fillSendLinks() {
-  let len = 0;
-  for (const a of document.querySelectorAll('a[data-act=sgWa]')) {
-    const c = A.state.contacts.find((x) => x.id === a.dataset.cid); if (!c) continue;
-    const r = sendRoute(c);
-    const link = await A.buildShareLink(A.routePackage(A.state, r, c.name)); len = link.length;
-    const txt = t('Route "{route}" voor {name} – {n} ({ship}). Open de link om de route in de app te zetten:', { route: r.name, name: c.name, n: A.plural(r.steps.length, t('taak'), t('taken')), ship: A.state.shipName });
-    a.href = `https://wa.me/${A.waNum(c.phone)}?text=${encodeURIComponent(txt + '\n' + link)}`;
-  }
-  const i = $f('#sgInfo'); if (i && len) i.textContent = t('Link: {n} tekens', { n: len }) + (len > 6000 ? t(' – lang; deel liever als bestand') : '');
 }
 function saveSent(c, via) {
   const r = sendRoute(c);
@@ -709,8 +694,7 @@ export const actions = {
   sgRoute: (a) => { const sg = sugBy(a.dataset.k); if (sg) makeRouteSheet({ sg, tpl: !!a.dataset.tpl }); },
   sgShow: (a) => { const sg = sugBy(a.dataset.k); if (sg) sugTasksSheet(sg); },
   sgSend: (a) => { const sg = sugBy(a.dataset.k); if (sg) sendSheet(sg, a.dataset.rank || ''); },
-  sgWa: (a) => { const c = A.state.contacts.find((x) => x.id === a.dataset.cid); saveSent(c, 'whatsapp'); A.toast(t('Route opgeslagen en via WhatsApp verstuurd naar {name}', { name: c?.name || '' }), 3500); setTimeout(() => { A.closeSheet(); A.render(); }, 300); return 'default'; },
-  sgOther: () => { const r = saveSent(null, 'menu'); r.sentLog = []; S(); A.closeSheet(); A.openShare(r); },
+  sgApp: async (a) => { const c = A.state.contacts.find((x) => x.id === a.dataset.cid); if (!c?.inbox) return; const r = saveSent(c, 'app'); A.closeSheet(); A.render(); await A.deliverTo(r, c); },
   mTplRefresh: (a) => { const n = refreshTemplates(true, a.dataset.id); A.render(); A.toast(n ? t('Route ververst') : t('Niet gelukt – is MARAD ontgrendeld?')); },
   mTplStop: (a) => { if (!confirm(t('Sjabloon stoppen? De route zelf blijft bestaan.'))) return; const tp = (A.state.templates || []).find((x) => x.id === a.dataset.id); A.state.templates = (A.state.templates || []).filter((x) => x.id !== a.dataset.id); const r = tp && A.state.routes.find((x) => x.id === tp.routeId); if (r) delete r.templateId; S(); A.render(); },
   mSt: (a) => { F.st = a.dataset.v; A.render(); },

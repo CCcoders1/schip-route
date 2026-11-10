@@ -1,6 +1,7 @@
 // Taken verdelen (Beheer): lijst openen → taken op urgentie (te laat eerst) → taken aantikken (selectie)
 // → "Stuur selectie naar…" (persoon / rang + optioneel naam) → de app maakt zelf de tactische looproute
-// (slimme volgorde over het schip, binnen een plek de te late taken eerst) en opent het bestaande deelscherm.
+// (slimme volgorde over het schip, binnen een plek de te late taken eerst) en plaatst het lijstje direct in de app
+// van een gekoppeld persoon (v1.13: geen WhatsApp meer).
 // Toewijzingen en selectie staan lokaal (state.dist), gekoppeld aan lijst + taak.
 import { t } from './i18n.js';
 import { RANK_IDS, RANK_ICON, normRank, normRanks, rankLabel } from './ranks.js';
@@ -19,6 +20,8 @@ const listBy = (k) => lists().find((l) => l.key === k);
 const sorted = (l) => [...l.tasks].sort((a, b) => A.MT.byUrgency(a, b));
 const shown = (l) => { const xs = sorted(l); return D().dueOnly[l.key] ? xs.filter((x) => x.soon) : xs; };
 const assignOf = (l, x) => { const e = D().a[l.key]?.[x.key]; return e?.rank ? e : null; };
+/** Na het versturen afgetekend? (MARAD-afmelding op/na de dag van toewijzen) → { by, date } of null. */
+const doneOf = (l, x) => { const e = assignOf(l, x); const tk = x.marad && A.state.maint?.tasks?.find((y) => y.id === x.marad); const ad = tk?.appDone; if (!e || !ad?.date || ad.date < String(e.at).slice(0, 10)) return null; const lg = (tk.doneLog || []).filter((d) => d.date === ad.date).pop(); return { by: lg?.by || '', date: ad.date }; };
 const selOf = (l) => new Set(D().sel[l.key] || []);
 const setSel = (l, s) => { D().sel[l.key] = [...s]; };
 const whoKey = (a) => a.rank + '|' + (a.name || '');
@@ -46,10 +49,10 @@ export function view() {
   return overview();
 }
 function listCard(l) {
-  const n = l.tasks.length, od = l.tasks.filter((x) => x.st === 'overdue').length, done = l.tasks.filter((x) => assignOf(l, x)).length;
+  const n = l.tasks.length, od = l.tasks.filter((x) => x.st === 'overdue').length, done = l.tasks.filter((x) => assignOf(l, x)).length, signed = l.tasks.filter((x) => doneOf(l, x)).length;
   const pct = n ? Math.round((done / n) * 100) : 0;
   return `<button class="card tap dlist" data-act="distOpen" data-k="${esc(l.key)}"><span class="dl-ic">${l.icon}</span><span class="dl-body"><b>${esc(l.name)}</b>
-    <small>${t('{n} taken', { n })}${od ? ` · <span class="tag red">${t('{n} te laat', { n: od })}</span>` : ''}${done ? ` · 📤 ${t('{n} verstuurd', { n: done })}` : ''}</small>
+    <small>${t('{n} taken', { n })}${od ? ` · <span class="tag red">${t('{n} te laat', { n: od })}</span>` : ''}${done ? ` · 📤 ${t('{n} verstuurd', { n: done })}` : ''}${signed ? ` · ✔ ${t('{n} afgetekend', { n: signed })}` : ''}</small>
     <span class="dbar"><i style="width:${pct}%"></i></span></span><span class="dl-go">›</span></button>`;
 }
 function sentList() { return Object.entries(D().sent).filter(([k, s]) => s.list && s.rank).map(([k, s]) => ({ k, s, r: A.state.routes.find((x) => x.id === s.routeId) })).filter((x) => x.r); }
@@ -78,10 +81,10 @@ function listView(l) {
     const [cls, lbl] = ST()[st];
     h += `<h3 class="dsec ${cls}" data-st="${st}">${lbl} (${g.length})</h3>`;
     for (const x of g) {
-      const on = sel.has(x.key), a = assignOf(l, x); const hint = normRanks(x.ranks).find((r) => RANK_IDS.includes(r));
+      const on = sel.has(x.key), a = assignOf(l, x), dn = a && doneOf(l, x); const hint = normRanks(x.ranks).find((r) => RANK_IDS.includes(r));
       h += `<div class="dtask ${on ? 'sel' : ''} st-${st}" role="checkbox" tabindex="0" aria-checked="${on}" data-act="distTog" data-t="${esc(x.key)}" data-st="${st}">
         <span class="dchk">${on ? '✔' : ''}</span><div class="dt-body"><b>${esc(x.title)}</b><small>${esc(x.sub)}${x.due ? ` · 📅 ${esc(x.due)}` : ''}</small>
-        <span class="dtags">${cls ? `<span class="tag ${cls}">${lbl}</span>` : ''}${hint ? `<span class="tag ghost">${RANK_ICON[hint]} ${esc(rankLabel(hint))}</span>` : ''}${a ? `<span class="tag sent">📤 ${esc(whoShort(a))}</span>` : ''}</span></div></div>`;
+        <span class="dtags">${cls ? `<span class="tag ${cls}">${lbl}</span>` : ''}${hint ? `<span class="tag ghost">${RANK_ICON[hint]} ${esc(rankLabel(hint))}</span>` : ''}${a ? (dn ? `<span class="tag ok sdone">✔ ${t('Afgetekend door {name}', { name: esc(dn.by || whoShort(a)) })}</span>` : `<span class="tag sent">📤 ${esc(whoShort(a))}</span>`) : ''}</span></div></div>`;
     }
   }
   h += '</div>';
@@ -100,12 +103,18 @@ function sendView() {
       <p class="small"><b>→ ${esc(whoLabel(who))}</b></p>
       <p class="small">🧭 ${routePreview(r.steps)}</p>
       <details><summary>${t('Taken bekijken (looproute)')}</summary><ol class="plain small">${r.steps.map((x) => `<li>${esc(A.tx(x, 'title'))}</li>`).join('')}</ol></details>
-      ${s.via === 'app' ? (s.ackVer >= s.ver ? `<p class="okc small dstat ok">✔ ${t('Ontvangen in de app van {name} · {d}', { name: esc(s.toName || ''), d: A.fmtDT(s.ackAt) })}</p>` : `<p class="small dstat wait">📬 ${t('Geplaatst {d} – wacht tot {name} online is', { d: A.fmtDT(s.pubAt), name: esc(s.toName || '') })}</p>`) : `<p class="okc small">✔ ${t('Klaargezet/gedeeld {d}', { d: A.fmtDT(s.at) })}</p>`}
-      ${s.via === 'app' ? `<div class="row"><button class="btn" data-act="distRedeliver" data-k="${esc(k)}">🔁 ${t('Opnieuw plaatsen')}</button><button class="btn ghost small" data-act="distReshare" data-id="${esc(r.id)}">📲 WhatsApp</button></div>` : `<button class="btn wa big" data-act="distReshare" data-id="${esc(r.id)}">📲 ${t('Opnieuw delen')}</button>`}</section>`;
+      ${statusLine(s)}
+      ${s.via === 'app' ? (A.LINK.doneAfter(s.aid, s.ver) ? '' : `<div class="row"><button class="btn" data-act="distRedeliver" data-k="${esc(k)}">🔁 ${t('Opnieuw plaatsen')}</button></div>`) : `<p class="muted small">${t('Nog niet in de app geplaatst. Koppel deze persoon (Voortgang → Iemand koppelen) en stuur het lijstje opnieuw.')}</p>`}</section>`;
   }
   return h;
 }
 
+function statusLine(s) {
+  if (s.via !== 'app') return '';
+  const fin = A.LINK.doneAfter(s.aid, s.ver);
+  if (fin) return `<p class="okc small dstat done">✅ ${t('Afgerond door {name} · {d}', { name: esc(fin.by || s.toName || ''), d: A.fmtDT(fin.finishedAt) })}</p>`;
+  return s.ackVer >= s.ver ? `<p class="okc small dstat ok">✔ ${t('Ontvangen in de app van {name} · {d}', { name: esc(s.toName || ''), d: A.fmtDT(s.ackAt) })}</p>` : `<p class="small dstat wait">📬 ${t('Geplaatst {d} – wacht tot {name} online is', { d: A.fmtDT(s.pubAt), name: esc(s.toName || '') })}</p>`;
+}
 // ---------- kiezer ----------
 function pickSheet(l) {
   PK = { list: l.key }; const n = selOf(l).size;
@@ -113,7 +122,7 @@ function pickSheet(l) {
   const usedRaw = [...Object.values(D().a).flatMap((m) => Object.values(m)), ...Object.values(D().sent)].filter((e) => e.rank && e.name && !people.some((c) => c.name === e.name)).map((e) => e.rank + '|' + e.name);
   const used = [...new Set(usedRaw)];
   const pbtn = (rank, name) => { const pc = A.LINK.pairedFor({ rank, name }); return `<button class="btn pbtn ${pc ? 'paired' : ''}" data-act="distSet" data-r="${esc(rank)}" data-n="${esc(name)}">${RANK_ICON[rank]} <b>${esc(name)}</b> <small>${esc(rankLabel(rank))}${pc ? ' · 🔗 ' + t('direct in app') : ''}</small></button>`; };
-  A.openSheet(`<h2>${t('Stuur {n} taken naar…', { n })}</h2><p class="muted small">${t('De app zet de taken zelf in een slimme looproute. Gekoppelde mensen (🔗) krijgen het lijstje direct in hun app; anders opent het deelscherm.')}</p>
+  A.openSheet(`<h2>${t('Stuur {n} taken naar…', { n })}</h2><p class="muted small">${t('De app zet de taken zelf in een slimme looproute. Gekoppelde mensen (🔗) krijgen het lijstje direct in hun app. Wie nog niet gekoppeld is, koppel je eerst (Voortgang → Iemand koppelen).')}</p>
     ${people.length || used.length ? `<div class="flbl">${t('Persoon')}</div><div class="pgrid">${people.map((c) => pbtn(normRank(c.func), c.name)).join('')}${used.map((k) => pbtn(...k.split('|'))).join('')}</div>` : ''}
     <div class="flbl">${t('Rang')}</div><label class="small">${t('Naam erbij (optioneel)')}<input id="dName" autocomplete="off" autocapitalize="words" placeholder="${t('bijv. voornaam')}" value=""></label>
     <div class="rankgrid compact">${RANK_IDS.map((r) => `<button class="rankcard" data-act="distSet" data-r="${esc(r)}"><span class="ri">${RANK_ICON[r]}</span><b>${esc(rankLabel(r))}</b></button>`).join('')}</div>
@@ -127,6 +136,13 @@ function sendSelection(rank, name) {
   const l = listBy(PK?.list); if (!l || !rank) return;
   const sel = selOf(l); if (!sel.size) return;
   const who = { rank, name: name || '' }, wk = whoKey(who), key = l.key + '#' + wk;
+  const c = A.LINK.pairedFor(who);
+  if (!c) {
+    // niet gekoppeld: niets versturen en niets toewijzen (geen WhatsApp meer) – eerst koppelen; selectie blijft staan
+    A.openSheet(`<h2>🔗 ${t('{name} is nog niet gekoppeld', { name: esc(whoShort(who)) })}</h2><p class="warnbox dpairhint">${t('Versturen kan alleen naar iemand die gekoppeld is. Laat {name} in zijn app openen: Meer → Koppelen met Beheer → Kopieer koppelcode, en plak die code bij Voortgang → Iemand koppelen. Daarna kun je dit lijstje opnieuw sturen.', { name: esc(whoShort(who)) })}</p>
+    <div class="stack"><button class="btn primary big" data-act="pairSheet">🔗 ${t('Iemand koppelen')}</button><button class="btn ghost" data-act="closeSheet">${t('Sluiten')}</button></div>`, { needPair: true });
+    return;
+  }
   // zelfde ronde opnieuw naar dezelfde ontvanger = die kaart vervangen (andere rondes blijven staan)
   const a = (D().a[l.key] ||= {});
   for (const [tk, e] of Object.entries(a)) if (e.rank && whoKey(e) === wk) delete a[tk];
@@ -139,16 +155,9 @@ function sendSelection(rank, name) {
   const i = A.state.routes.findIndex((x) => x.id === id); if (i >= 0) A.state.routes[i] = r; else A.state.routes.push(r);
   D().sent[key] = { at, n: r.steps.length, routeId: id, rank, name: who.name, list: l.key, listName: l.name };
   D().sel[l.key] = [];
-  const c = A.LINK.pairedFor(who);
-  if (c) {
-    // gekoppeld: direct in zijn app plaatsen (via de outbox, ook offline) – geen WhatsApp nodig
-    if (!r.intendedName) r.intendedName = c.name;
-    A.save(); A.closeSheet(); A.render(); A.LINK.deliver(r, c, key);
-    return;
-  }
-  D().sent[key].via = 'share';
-  A.save(); A.closeSheet(); A.render();
-  A.openShare(r).then(() => { const h = document.querySelector('#sheet .sheet-card h2'); h?.insertAdjacentHTML('afterend', `<p class="infobox small dpairhint">🔗 ${t('{name} is nog niet gekoppeld. Koppel één keer (Voortgang → Iemand koppelen), dan komen lijstjes zonder WhatsApp in zijn app.', { name: esc(whoShort(who)) })}</p>`); });
+  // gekoppeld: direct in zijn app plaatsen (via de outbox, ook offline)
+  if (!r.intendedName) r.intendedName = c.name;
+  A.save(); A.closeSheet(); A.render(); A.LINK.deliver(r, c, key);
 }
 
 export const actions = {
@@ -162,5 +171,4 @@ export const actions = {
   distSelNone: () => { const l = listBy(A.view().dist); if (!l) return; setSel(l, new Set()); A.save(); A.render(); },
   distSendSel: () => { const l = listBy(A.view().dist); if (l && selOf(l).size) pickSheet(l); },
   distSet: (a) => { const r = a.dataset.r || null; const n = a.dataset.n ?? ($f('#dName')?.value.trim() || ''); sendSelection(r, n); },
-  distReshare: (a) => { const r = A.state.routes.find((x) => x.id === a.dataset.id); if (r) A.openShare(r); },
 };

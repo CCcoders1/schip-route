@@ -31,7 +31,7 @@ export function routePackage(state, r, to = '') {
   const used = new Set(r.steps.map((s) => s.locationId));
   const locations = state.locations.filter((l) => used.has(l.id));
   const decks = state.decks.filter((d) => locations.some((l) => l.deck === d.id));
-  return { app: 'schiproute', kind: 'route', v: 1, ship: state.shipName, to, from: state.settings.userName || '', replyTo: { name: state.settings.userName || '', phone: state.settings.userPhone || '' }, notify: state.settings.ntfyTopic ? { topic: state.settings.ntfyTopic, server: state.settings.ntfyServer || 'https://ntfy.sh' } : null, sentAt: new Date().toISOString(), route: r, locations, decks };
+  return { app: 'schiproute', kind: 'route', v: 1, ship: state.shipName, to, from: state.settings.userName || '', replyTo: { name: state.settings.userName || '' }, notify: state.settings.ntfyTopic ? { topic: state.settings.ntfyTopic, server: state.settings.ntfyServer || 'https://ntfy.sh' } : null, sentAt: new Date().toISOString(), route: r, locations, decks };
 }
 export async function buildShareLink(pkg) {
   const base = location.href.split('#')[0].split('?')[0];
