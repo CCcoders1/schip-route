@@ -9,7 +9,7 @@ import { shipSVG, svgPointToLoc, VIEWS } from './shipmap.js';
 import { t, tx, setTx, getLang, setLang, LANGS, LOCALES } from './i18n.js';
 import { RANK_IDS, RANK_ICON, normRank, rankLabel } from './ranks.js';
 
-const APP_VERSION = '1.12.0';
+const APP_VERSION = '1.12.1';
 const TEST = self.__SRTEST || {}; // alleen tests: { noSplash, noProfile }
 const OB = self.OutboxCore;
 const $ = (s, el = document) => el.querySelector(s);
@@ -1338,7 +1338,7 @@ function viewCrewRoutes() {
   if (trainee) h += `<p class="infobox">🎓 ${t('Je begeleider stuurt je een ronde via WhatsApp. Open die link; de ronde verschijnt dan hier.')}</p>`;
   if (other.length) h += `<details class="card otherranks"><summary>${t('Voor andere rangen ({n})', { n: other.length })}</summary><div class="list">${other.map((r) => crewRouteCard(r, rank)).join('')}</div></details>`;
   // v1.10: bemanning ziet géén pool met open MARAD-taken – alleen de lijsten die Beheer doorstuurt (afvinken).
-  if (!trainee) h += OIL.crewCard();
+  h += OIL.crewCard(); // v1.12.1: ook stagiairs vullen olie bij
   h += `<div class="row crewimp"><button class="btn small ghost" data-act="pasteRoute">${t('📋 Route plakken')}</button><button class="btn small ghost" data-act="importFile">${t('📥 Route-bestand')}</button></div>`;
   return h;
 }
