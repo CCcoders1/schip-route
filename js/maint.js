@@ -57,7 +57,7 @@ export function initMaint(api) {
   $f('#fileMarad')?.addEventListener('change', async (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) readFile(f); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.id === 'mPw') { e.preventDefault(); actions.mUnlock(); } });
   if (A.legacyMaint) migrateLegacy(A.legacyMaint);
-  return { rankOverview, rankRoundsHTML, view, actions, applyRun, applyPending, ensureMaint, runExtra, maradFields, persist, refreshTemplates, rankNames, templateInfo, sugCount, todayHTML, startFixed, needsReunlock, slimDefault, weekStats };
+  return { distLists, distRoute, rankOverview, rankRoundsHTML, view, actions, applyRun, applyPending, ensureMaint, runExtra, maradFields, persist, refreshTemplates, rankNames, templateInfo, sugCount, todayHTML, startFixed, needsReunlock, slimDefault, weekStats };
 }
 const $f = (s) => document.querySelector(s);
 
@@ -366,6 +366,35 @@ function buildRoute(tasks, { name, assignee = '', strategy = 'kortste', fallback
     };
   });
   return { id: 'r-' + A.rid(), name, description: description || t('Uit MARAD: {n} taken', { n: steps.length }), assignee, createdAt: Date.now(), updatedAt: Date.now(), source: 'marad', steps: A.orderSteps(steps, A.state, strategy) };
+}
+
+// ---------- taken verdelen (lijsten → taken → ontvanger) ----------
+/** Lijsten om te verdelen: vaste rondes (alle taken) + eigen routes. Taak-sleutel = MARAD-id of stap-id. */
+export function distLists() {
+  const m = M(); const out = [];
+  if (m?.tasks) {
+    allSug();
+    for (const sg of FX.rounds) out.push({ key: sg.key, kind: 'fixed', icon: kIcon(sg), name: sugName(sg), period: periodLbl(sg.period), ranks: sg.ranks,
+      tasks: [...sg.tasks].sort(byDue).map((x) => { const c = comp(x), l = A.loc(x.locId), st = status(x); return { key: x.id, title: x.name, sub: [c ? (c.code ? c.code + ' – ' : '') + c.name : '', l ? A.tx(l, 'name') : ''].filter(Boolean).join(' · '), ranks: x.rank, st, due: x.dueDate ? fmtD(x.dueDate) : '', soon: st === 'overdue' || st === 'week' || fixedDue0(sg.period, x), marad: x.id }; }) });
+  }
+  for (const r of A.state.routes.filter((x) => !x.templateId && !x.importedAt && x.source !== 'dist' && x.steps.length)) {
+    out.push({ key: 'r:' + r.id, kind: 'route', icon: '🧭', name: A.tx(r, 'name'), period: '', ranks: [], routeId: r.id,
+      tasks: r.steps.map((st) => { const l = A.loc(st.locationId); const mx = st.marad?.id && m?.tasks?.find((y) => y.id === st.marad.id); return { key: st.id, title: A.tx(st, 'title'), sub: l ? A.tx(l, 'name') : '', ranks: mx ? mx.rank : [], st: mx ? status(mx) : 'none', due: mx?.dueDate ? fmtD(mx.dueDate) : '', soon: true, step: st.id }; }) });
+  }
+  return out;
+}
+const fixedDue0 = (period, x) => { if (!x.dueDate) return false; return (new Date(x.dueDate) - new Date(todayISO())) / 864e5 <= ({ week: 7, '2w': 14, month: 31 }[period] || 7); };
+/** Samengestelde route voor één ontvanger: MARAD-taken (met afmeldvelden) + stappen uit eigen routes. */
+export function distRoute(items, { name, assignee = '' }) {
+  const ids = new Set(items.filter((i) => i.marad).map((i) => i.marad));
+  const tasks = (M()?.tasks || []).filter((x) => ids.has(x.id));
+  const r = buildRoute(tasks, { name, assignee, strategy: slimDefault(), description: '' });
+  for (const i of items.filter((y) => y.step)) {
+    const src = A.state.routes.find((x) => x.id === i.routeId)?.steps.find((y) => y.id === i.step); if (!src) continue;
+    r.steps.push({ ...JSON.parse(JSON.stringify(src)), id: A.rid() });
+  }
+  r.steps = A.orderSteps(r.steps, A.state, slimDefault());
+  return r;
 }
 
 // ---------- rangen (overzicht + rangpagina) ----------

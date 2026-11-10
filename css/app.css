@@ -21,7 +21,7 @@ h1 { font-size: 1.5rem; } h2 { font-size: 1.2rem; } h3.sec { font-size: 1.05rem;
 .muted { color: var(--muted); } .small { font-size: .85rem; } .empty { color: var(--muted); padding: 1em 0; }
 .hint { color: var(--muted); font-size: .88rem; margin: .4em 0; }
 header.top { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 10px; padding: 12px 0 10px; background: var(--bg); }
-header.top h1 { flex: 1; } .shipname { font-size: .8rem; color: var(--muted); }
+header.top h1 { flex: 1; min-width: 0; overflow-wrap: break-word; } .shipname { font-size: .8rem; color: var(--muted); }
 .net { font-size: .7rem; padding: 3px 8px; border-radius: 99px; background: var(--chip); }
 .net.off { background: var(--acc); color: #000; font-weight: 700; }
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: var(--tap); padding: 10px 16px; border-radius: var(--r); border: 2px solid var(--line); background: var(--card); color: var(--fg); font: inherit; font-weight: 600; cursor: pointer; text-decoration: none; text-align: center; }
@@ -425,3 +425,37 @@ body.profiling { overflow: hidden; }
 .rankbanner { display: flex; flex-direction: column; gap: 2px; width: 100%; text-align: left; }
 details.otherranks summary { cursor: pointer; font-weight: 600; }
 .rankgrid .rankcard:last-child:nth-child(odd) { grid-column: span 2; }
+
+/* ---------- v1.10 taken verdelen ---------- */
+.dlist { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; }
+.dl-ic { font-size: 1.6rem; flex: none; } .dl-body { flex: 1; display: flex; flex-direction: column; gap: 4px; min-width: 0; } .dl-go { font-size: 1.6rem; color: var(--muted); }
+.dbar { display: block; height: 6px; border-radius: 3px; background: var(--chip); overflow: hidden; } .dbar i { display: block; height: 100%; background: var(--ok); }
+.dper { display: flex; flex-wrap: wrap; gap: 4px; }
+.dsendbanner { display: flex; flex-direction: column; gap: 2px; width: 100%; text-align: left; border: 2px solid var(--ok); }
+.dsendbanner[disabled] { opacity: .6; border-color: var(--line); }
+.dtasks { display: flex; flex-direction: column; gap: 8px; padding-bottom: calc(100px + env(safe-area-inset-bottom)); }
+.dtask { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 14px; background: var(--card); border: 1px solid var(--line); }
+.dtask.open { border-left: 5px solid var(--acc); }
+.dt-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; } .dt-body b { overflow-wrap: anywhere; } .dt-body small { color: var(--muted); }
+.dwho { flex: none; max-width: 46%; min-height: 52px; padding: 6px 10px; border-radius: 12px; border: 1px solid var(--line); background: var(--chip); color: var(--fg); font: inherit; font-weight: 600; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; cursor: pointer; }
+.dwho.set { background: var(--pri); color: var(--pri-fg); border-color: var(--pri); } .dwho.auto small { font-weight: 400; color: var(--muted); font-size: .72rem; }
+.dwho.none { border-style: dashed; background: none; }
+.dfoot { position: fixed; left: 0; right: 0; bottom: calc(64px + env(safe-area-inset-bottom)); z-index: 9; padding: 8px 16px; background: var(--bg); border-top: 1px solid var(--line); }
+.pgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; } .pbtn { display: flex; flex-direction: column; align-items: center; } .pbtn.on { border: 2px solid var(--pri); }
+.rankgrid.compact .rankcard { min-height: 66px; } .rankgrid.compact .ri { font-size: 1.4rem; }
+.dgroup .btn.wa { width: 100%; }
+/* ---------- v1.10 olie: bijgevuld-lijst + snelle aantekening ---------- */
+.qchips { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 10px; } .qchips .chip { min-height: 40px; padding: 6px 12px; } .qchips .chip.on { background: var(--pri); color: var(--pri-fg); }
+input.bignum { font-size: 1.6rem; font-weight: 700; }
+ul.rlog { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+li.rlog { display: flex; gap: 12px; align-items: flex-start; padding: 10px 0; border-top: 1px solid var(--line); } li.rlog:first-child { border-top: 0; }
+.rl-l { flex: none; width: 62px; text-align: center; background: var(--chip); border-radius: 12px; padding: 6px 0; } .rl-l b { display: block; font-size: 1.35rem; line-height: 1.1; } .rl-l small { color: var(--muted); }
+.rl-b { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; } .rl-b small { color: var(--muted); }
+.rl-n { margin-top: 3px; padding: 4px 8px; border-radius: 8px; background: var(--card); border: 1px dashed var(--line); font-size: .9rem; }
+.rlogcard .ohead, .rlogday .ohead { align-items: center; }
+html:has(.dfoot) { scroll-padding-top: 90px; scroll-padding-bottom: 170px; }
+.pgrid, .rankgrid.compact { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.pbtn, .rankgrid.compact .rankcard { min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+#dName { width: 100%; box-sizing: border-box; }
+.donrow { width: 100%; justify-content: flex-start; margin: 4px 0 10px; } .donrow.on { border: 2px solid var(--ok); }
+html:has(.dtasks, .dlist, .dgroup) header.top h1 { font-size: 1.3rem; line-height: 1.2; }

@@ -2,12 +2,13 @@ import { state, save, rid, loc, deck, route, getPlan, setPlan, delPlan, replaceS
 import { STRATEGIES, orderSteps } from './planner.js';
 import { routePackage, buildShareLink, readHashPayload, reportPackage } from './share.js';
 import { initOil } from './oil.js';
+import { initDist } from './dist.js';
 import { initMaint } from './maint.js';
 import { shipSVG, svgPointToLoc, VIEWS } from './shipmap.js';
 import { t, tx, setTx, getLang, setLang, LANGS, LOCALES } from './i18n.js';
 import { RANK_IDS, RANK_ICON, normRank, rankLabel } from './ranks.js';
 
-const APP_VERSION = '1.9.1';
+const APP_VERSION = '1.10.0';
 const TEST = self.__SRTEST || {}; // alleen tests: { noSplash, noProfile }
 const OB = self.OutboxCore;
 const $ = (s, el = document) => el.querySelector(s);
@@ -102,14 +103,14 @@ function render() {
   if (isCrew()) view.routeId = null;
   document.body.classList.toggle('crew', isCrew());
   $$('#nav button').forEach((b) => { b.classList.toggle('on', b.dataset.tab === view.tab); b.hidden = isCrew() || !BEHEER_TABS.includes(b.dataset.tab); });
-  if (view.tab === 'rangen') $$('#nav button').forEach((b) => b.classList.toggle('on', b.dataset.tab === 'vandaag'));
+  if (view.tab === 'rangen' || view.tab === 'verdelen') $$('#nav button').forEach((b) => b.classList.toggle('on', b.dataset.tab === 'vandaag'));
   const NAVL = { olie: t('Olie'), vandaag: t('Vandaag'), meldingen: t('Meldingen'), routes: isCrew() ? t('Mijn routes') : t('Rondes'), onderhoud: t('Onderhoud'), kaart: t('Kaart'), locaties: t('Locaties'), historie: t('Historie'), meer: t('Meer') };
   $$('#nav button').forEach((b) => { b.lastChild.textContent = NAVL[b.dataset.tab]; });
   const nb = $('#nav button[data-tab=meldingen]'); const un = isCrew() ? 0 : unseenCount() + unseenMsgs();
   let bd = nb.querySelector('.nbadge'); if (!bd) { bd = document.createElement('b'); bd.className = 'nbadge'; nb.prepend(bd); }
   bd.textContent = un > 99 ? '99+' : un; bd.hidden = !un; nb.setAttribute('aria-label', NAVL.meldingen + (un ? ' – ' + t('{n} ongelezen', { n: un }) : ''));
   const fn = {
-    vandaag: viewToday, meldingen: viewMeldingen, olie: () => OIL.view(), rangen: viewRanks,
+    vandaag: viewToday, meldingen: viewMeldingen, olie: () => OIL.view(), rangen: viewRanks, verdelen: () => DIST.view(),
     routes: isCrew() ? viewCrewRoutes : view.routeId ? viewRoute : viewRoutes,
     onderhoud: MT.view,
     kaart: viewMap, locaties: viewLocations,
@@ -155,6 +156,7 @@ function viewToday() {
   if (un) h += `<button class="card tap melbanner" data-act="goTab" data-v="meldingen">🔔 <b>${t('{n} ongelezen meldingen', { n: un })}</b><small>${t('vragen, observaties, Niet OK en aftekeningen')}</small></button>`;
   if (!state.maint?.tasks) h += `<section class="card"><h3>🔐 ${t('Onderhoud ontgrendelen')}</h3><p class="muted small">${t('Ontgrendel de MARAD-gegevens om de vaste rondes en te-late taken te zien.')}</p><button class="btn primary big" data-act="mUnlockSheet">${t('🔓 Ontgrendelen')}</button></section>`;
   else h += MT.todayHTML() + `<div class="row"><button class="btn" data-act="mWeekGo">${t('📅 Weekoverzicht')}</button><button class="btn" data-act="goSug">${t('💡 Alle vaste rondes')}</button></div>`;
+  h += `<button class="card tap rankbanner distbanner" data-act="goDist">📋 <b>${t('Taken verdelen')}</b><small>${t('Lijst aantikken, per taak kiezen naar wie hij gaat, daarna versturen')}</small></button>`;
   h += `<button class="card tap rankbanner" data-act="goRanks">🎖 <b>${t('Rangen')}</b><small>${t('Pagina per rang: vaste rondes klaarzetten en delen')}</small></button>`;
   const rs = state.routes.filter((r) => !r.templateId).slice(0, 5);
   if (rs.length) h += `<h3 class="sec">🧭 ${t('Eigen rondes')}</h3><div class="list compact">${rs.map((r) => `<article class="card route mini"><div class="tap" data-act="openRoute" data-id="${r.id}"><b>${esc(tx(r, 'name'))}</b><small>${plural(r.steps.length, t('taak'), t('taken'))}</small></div><button class="btn ok" data-act="startRun" data-id="${r.id}" ${r.steps.length ? '' : 'disabled'}>▶</button></article>`).join('')}</div><button class="btn small ghost" data-act="goTab" data-v="routes">${t('Alle rondes →')}</button>`;
@@ -166,7 +168,7 @@ function appMenu() {
     ${it('mWeekGo', '', '📅', t('Weekoverzicht'))}${it('goMaradDone', '', '⬇', t('Afgemeld voor MARAD (CSV)'))}
     ${it('goTab', 'kaart', '🚢', t('Kaart'))}${it('goTab', 'locaties', '📍', t('Locaties'))}
     ${it('goTab', 'historie', '📋', t('Historie (eigen rondes)'))}${it('newObs', '', '👁', t('Eigen observatie'))}
-    ${it('goRanks', '', '🎖', t('Rangen'))}${it('profileEdit', '', '👤', t('Profiel'))}
+    ${it('goDist', '', '📋', t('Taken verdelen'))}${it('goRanks', '', '🎖', t('Rangen'))}${it('profileEdit', '', '👤', t('Profiel'))}
     ${it('openOutbox', '', '📤', t('Outbox'))}${it('langMenu', '', '🌐', t('Taal · Language · Bahasa'))}
     ${it('goTab', 'meer', '⚙️', t('Instellingen, personen, PIN, modus'))}${state.maint ? it('mLock', '', '🔒', t('Vergrendelen')) : it('mUnlockSheet', '', '🔓', t('Ontgrendelen'))}
   </div><p class="muted small">${t('Versie')} ${APP_VERSION}</p>`, { menu: true });
@@ -227,6 +229,7 @@ function viewRoutes() {
   let h = header(t('Rondes')) + `<p class="shipsub">🚢 ${esc(state.shipName)}</p>`;
   if (ar) h += `<div class="card resume"><b>${t('Ronde bezig: {name}', { name: esc(tx(ar.route, 'name')) })}</b><p>${t('Stap {a} van {b} · gestart {c}', { a: Math.min(ar.idx + 1, ar.route.steps.length), b: ar.route.steps.length, c: fmtDT(ar.startedAt) })}</p><div class="row"><button class="btn ok big" data-act="resumeRun">${t('▶ Doorgaan')}</button><button class="btn ghost" data-act="abortRun">${t('Afbreken')}</button></div></div>`;
   h += installBanner();
+  h += `<button class="card tap rankbanner distbanner" data-act="goDist">📋 <b>${t('Taken verdelen')}</b><small>${t('Lijst aantikken, per taak kiezen naar wie hij gaat, daarna versturen')}</small></button>`;
   const ns = state.maint ? MT.sugCount() : 0;
   if (ns) h += `<button class="card tap sugbanner" data-act="goSug">💡 <b>${t('{n} voorgestelde routes', { n: ns })}</b><small>${t('op basis van functie en interval (Onderhoud → Voorstel)')}</small></button>`;
   h += `<div class="list">`;
@@ -816,7 +819,7 @@ const actions = {
   pfCancel: () => { closeProfile(); PF = null; },
   iosContinue: () => { const nx = sheetCtx?.next; closeSheet(); nx?.(); },
   setLang: (a) => { const L = a.dataset.v; if (L === getLang()) return closeSheet(); state.settings.lang = L; save(); setLang(L); location.reload(); },
-  closeSheet, back: () => (view.tab === 'rangen' ? (view.rank ? go('rangen', { rank: null }) : go('vandaag')) : go(view.tab)),
+  closeSheet, back: () => (view.tab === 'verdelen' ? (view.dist ? go('verdelen', { dist: null }) : go('vandaag')) : view.tab === 'rangen' ? (view.rank ? go('rangen', { rank: null }) : go('vandaag')) : go(view.tab)),
   install: async () => { if (!deferredInstall) return; deferredInstall.prompt(); await deferredInstall.userChoice; deferredInstall = null; render(); },
   hideInstall: () => { state.settings.hideInstall = true; save(); render(); },
   showInstall: () => { state.settings.hideInstall = false; save(); go('routes'); },
@@ -1300,10 +1303,13 @@ Object.assign(actions, {
 });
 
 // ---------- bemanning-weergaven ----------
+const sameName = (a, b) => !!a && !!b && String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
+/** Route bestemd voor mij: mijn naam, of mijn rang (als er geen andere naam op staat). */
+function isForMe(r, rank) { const me = state.settings.userName; if (r.intendedName && sameName(r.intendedName, me)) return true; return !!r.intendedRank && normRank(r.intendedRank) === rank && (!r.intendedName || !me); }
 function crewRouteCard(r, rank) {
   const nLoc = new Set(r.steps.map((s) => s.locationId)).size;
-  const mine = r.intendedRank && normRank(r.intendedRank) === rank;
-  return `<article class="card route ${mine ? 'forme' : ''}"><div class="tap" data-act="openRoute" data-id="${r.id}">${mine ? `<span class="tag forme">⭐ ${t('Voor jou')} · ${esc(rankLabel(rank))}</span>` : r.intendedRank ? `<span class="tag">🎖 ${t('voor {rank}', { rank: esc(rankLabel(r.intendedRank)) })}</span>` : ''}<h2>${esc(tx(r, 'name'))}</h2><p>${plural(r.steps.length, t('taak'), t('taken'))} · ${plural(nLoc, t('locatie'), t('locaties'))}${r.from ? ` · ${t('van {name}', { name: `<b>${esc(r.from)}</b>` })}` : ''}</p>${r.description ? `<p class="muted">${esc(tx(r, 'description'))}</p>` : ''}</div>
+  const mine = isForMe(r, rank);
+  return `<article class="card route ${mine ? 'forme' : ''}"><div class="tap" data-act="openRoute" data-id="${r.id}">${mine ? `<span class="tag forme">⭐ ${t('Voor jou')} · ${esc(rankLabel(r.intendedRank || rank))}</span>` : r.intendedRank ? `<span class="tag">🎖 ${t('voor {rank}', { rank: esc(rankLabel(r.intendedRank)) })}</span>` : ''}<h2>${esc(tx(r, 'name'))}</h2><p>${plural(r.steps.length, t('taak'), t('taken'))} · ${plural(nLoc, t('locatie'), t('locaties'))}${r.from ? ` · ${t('van {name}', { name: `<b>${esc(r.from)}</b>` })}` : ''}</p>${r.description ? `<p class="muted">${esc(tx(r, 'description'))}</p>` : ''}</div>
       <div class="stack"><button class="btn ok big" data-act="startRun" data-id="${r.id}" ${r.steps.length ? '' : 'disabled'}>${t('▶ Start ronde')}</button></div></article>`;
 }
 // Bemanning: kale startpagina per rang (begroeting, ontvangen rondes, evt. vaste rondes, olie-knoppen).
@@ -1314,15 +1320,14 @@ function viewCrewRoutes() {
   h += resumeCard() + installBanner();
   // alleen ontvangen routes (geen demo's); voor mijn rang bovenaan, voor andere rangen ingeklapt
   const recv = [...state.routes.filter((r) => r.importedAt)].reverse();
-  const forMe = recv.filter((r) => !r.intendedRank || normRank(r.intendedRank) === rank).sort((a, b) => (normRank(b.intendedRank) === rank) - (normRank(a.intendedRank) === rank));
+  const forMe = recv.filter((r) => (!r.intendedRank && !r.intendedName) || isForMe(r, rank)).sort((a, b) => isForMe(b, rank) - isForMe(a, rank));
   const other = recv.filter((r) => !forMe.includes(r));
   h += `<div class="list">`;
   if (!forMe.length) h += `<div class="emptystate"><p class="big">📭</p><p><b>${t('Nog geen ronde ontvangen.')}</b></p><p class="muted">${t('Open de link die je via WhatsApp krijgt.')}</p></div>`;
   h += forMe.map((r) => crewRouteCard(r, rank)).join('') + `</div>`;
   if (trainee) h += `<p class="infobox">🎓 ${t('Je begeleider stuurt je een ronde via WhatsApp. Open die link; de ronde verschijnt dan hier.')}</p>`;
   if (other.length) h += `<details class="card otherranks"><summary>${t('Voor andere rangen ({n})', { n: other.length })}</summary><div class="list">${other.map((r) => crewRouteCard(r, rank)).join('')}</div></details>`;
-  // vaste rondes alleen als Beheer op dít toestel ontgrendeld is (anders heeft de bemanning geen MARAD-gegevens)
-  if (!trainee && state.maint?.tasks) h += `<h3 class="sec">📌 ${t('Mijn vaste rondes')}</h3>` + MT.rankRoundsHTML(rank, { crew: true });
+  // v1.10: bemanning ziet géén pool met open MARAD-taken – alleen de lijsten die Beheer doorstuurt (afvinken).
   if (!trainee) h += OIL.crewCard();
   h += `<div class="row crewimp"><button class="btn small ghost" data-act="pasteRoute">${t('📋 Route plakken')}</button><button class="btn small ghost" data-act="importFile">${t('📥 Route-bestand')}</button></div>`;
   return h;
@@ -1649,8 +1654,10 @@ Object.assign(actions, {
 // ---------- onderhoud (MARAD) ----------
 const MT = initMaint({ oilApply: (run) => OIL.applyRun(run), legacyMaint, state, save, rid, esc, header, openSheet, closeSheet, toast, render: () => render(), go: (...x) => go(...x), shareFile, csvCell, fmtDT, plural, locSelect, loc, tx, STRATEGIES, orderSteps, waNum: (p) => waNum(p), buildShareLink, routePackage, openShare: (r) => openShare(r) });
 Object.assign(actions, MT.actions);
-const OIL = initOil({ state, save, rid, esc, header, openSheet, closeSheet, toast, render: () => render(), renderRun: () => renderRun(), shareFile, csvCell, fmtDT, tx, isCrew, copyText, persist: () => MT.persist(), openShare: (r) => openShare(r), sendOil: (ev, sum) => sendOil(ev, sum) });
+const OIL = initOil({ askProfile: (fn) => askProfile(fn), state, save, rid, esc, header, openSheet, closeSheet, toast, render: () => render(), renderRun: () => renderRun(), shareFile, csvCell, fmtDT, tx, isCrew, copyText, persist: () => MT.persist(), openShare: (r) => openShare(r), sendOil: (ev, sum) => sendOil(ev, sum) });
 Object.assign(actions, OIL.actions);
+const DIST = initDist({ state, save, esc, header, openSheet, closeSheet, toast, render: () => render(), go: (...x) => go(...x), view: () => view, MT, rid, fmtDT, openShare: (r) => openShare(r) });
+Object.assign(actions, DIST.actions);
 
 // ---------- start ----------
 if (!state.settings.lang) { state.settings.lang = getLang(); save(); }

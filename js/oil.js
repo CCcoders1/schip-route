@@ -193,9 +193,42 @@ export function view() {
   const warn = machines().filter((x) => usage(x.id).warn).length;
   h += `<div class="row2 oilacts"><button class="btn primary big" data-act="oilRefill">🛢 ${t('Olie bijgevuld')}</button><button class="btn big" data-act="oilDelivery">📦 ${t('Levering ontvangen')}</button></div>
     <div class="row2 oilacts"><button class="btn" data-act="oilInvMenu">📋 ${t('Inventaris tellen')}</button><button class="btn" data-act="oilInvRoute">📲 ${t('Inventaris-ronde maken')}</button></div>`;
-  const segs = [['voorraad', '📊 ' + t('Voorraad') + (low ? ` <span class="nb">${low}</span>` : '')], ['locaties', '📍 ' + t('Per locatie')], ['verbruik', '📈 ' + t('Verbruik') + (warn ? ` <span class="nb">${warn}</span>` : '')], ['bestel', '🛒 ' + t('Bestellijst')], ['uren', '⏱ ' + t('Urenstanden')]];
+  if (F.v !== 'log') { const last = refillLog().slice(0, 3); if (last.length) h += `<section class="card rlogcard"><div class="ohead"><h3>🧾 ${t('Laatst bijgevuld')}</h3><button class="btn small ghost" data-act="oilV" data-v="log">${t('Alles ({n})', { n: refillLog().length })} ›</button></div><ul class="rlog">${last.map(logItem).join('')}</ul></section>`; }
+  const segs = [['voorraad', '📊 ' + t('Voorraad') + (low ? ` <span class="nb">${low}</span>` : '')], ['log', '🧾 ' + t('Bijgevuld')], ['locaties', '📍 ' + t('Per locatie')], ['verbruik', '📈 ' + t('Verbruik') + (warn ? ` <span class="nb">${warn}</span>` : '')], ['bestel', '🛒 ' + t('Bestellijst')], ['uren', '⏱ ' + t('Urenstanden')]];
   h += `<div class="seg wrap oilseg">${segs.map(([k, v]) => `<button class="${F.v === k ? 'on' : ''}" data-act="oilV" data-v="${k}">${v}</button>`).join('')}</div>`;
-  h += { voorraad: stockHTML, locaties: locsHTML, verbruik: usageHTML, bestel: orderHTML, uren: hoursHTML }[F.v]();
+  h += { voorraad: stockHTML, log: logHTML, locaties: locsHTML, verbruik: usageHTML, bestel: orderHTML, uren: hoursHTML }[F.v]();
+  return h;
+}
+// ---------- lijst "bijgevuld en hoeveel" ----------
+function refillLog() {
+  const evs = ST() ? ST().events : A.state.oilLog || [];
+  return evs.filter((e) => e.kind === 'refill').sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.at || '').localeCompare(a.at || ''));
+}
+const hhmm = (e) => { if (!e.at || e.by === 'startdata') return ''; const d = new Date(e.at); const loc = new Date(d - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 10); return loc === e.date ? d.toLocaleTimeString(LOCALES[getLang()], { hour: '2-digit', minute: '2-digit' }) : ''; };
+function logItem(e, opt = {}) {
+  const m = mach(e.machineId), o = oilById(e.oilId), tm = hhmm(e);
+  const from = e.deducted === 'list' ? t('van lijstvoorraad') : e.deducted ? t('uit {loc}', { loc: LOC(e.deducted)?.name || e.deducted }) : e.noDeduct ? t('niet afgetrokken') : '';
+  return `<li class="rlog"><span class="rl-l"><b>${fmtL(e.liters)}</b><small>L</small></span><span class="rl-b">${opt.noMach ? '' : `<b>${esc(m?.name || e.machineName || '?')}</b>`}
+    <small>🧴 ${esc(o ? short(o) : e.oilName || '?')}${e.hours ? ` · ⏱ ${fmtL(e.hours)} h` : ''}</small>
+    <small>${opt.noDay ? (tm ? '🕒 ' + tm : '') : '📅 ' + fmtD(e.date) + (tm ? ' ' + tm : '')}${e.by && e.by !== 'startdata' ? ' · 👤 ' + esc(e.by) : e.by === 'startdata' ? ' · ' + t('startgegevens') : ''}${from ? ' · 📦 ' + esc(from) : ''}</small>
+    ${e.note ? `<span class="rl-n">📝 ${esc(e.note)}</span>` : ''}</span></li>`;
+}
+function dayLabel(d) {
+  const td = today(); const y = new Date(Date.now() - 864e5 - new Date().getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
+  if (d === td) return t('Vandaag'); if (d === y) return t('Gisteren');
+  return new Date(d + 'T12:00:00').toLocaleDateString(LOCALES[getLang()], { weekday: 'long', day: 'numeric', month: 'long' });
+}
+function logHTML() {
+  const xs = refillLog(); const by = F.logBy || 'dag';
+  let h = `<div class="seg"><button class="${by === 'dag' ? 'on' : ''}" data-act="oilLogBy" data-v="dag">📅 ${t('Per dag')}</button><button class="${by === 'machine' ? 'on' : ''}" data-act="oilLogBy" data-v="machine">🔧 ${t('Per machine')}</button></div>`;
+  if (!xs.length) return h + `<p class="infobox">${t('Nog geen bijvullingen geregistreerd.')}</p>`;
+  const groups = new Map();
+  for (const e of xs) { const k = by === 'dag' ? e.date || '' : e.machineId || e.machineName || '?'; (groups.get(k) || groups.set(k, []).get(k)).push(e); }
+  for (const [k, es] of groups) {
+    const sum = es.reduce((a, e) => a + (+e.liters || 0), 0);
+    const title = by === 'dag' ? dayLabel(k) : mach(k)?.name || k;
+    h += `<section class="card rlogday"><div class="ohead"><h3>${by === 'dag' ? '📅' : '🔧'} ${esc(title)}</h3><span class="oiltot">${fmtL(sum)} L</span></div><p class="small muted">${es.length === 1 ? t('1 bijvulling') : t('{n} bijvullingen', { n: es.length })}</p><ul class="rlog">${es.map((e) => logItem(e, by === 'dag' ? { noDay: true } : { noMach: true })).join('')}</ul></section>`;
+  }
   return h;
 }
 function stockHTML() {
@@ -277,13 +310,13 @@ function hoursHTML() {
 export function crewCard() {
   const log = (A.state.oilLog || []).slice(-3).reverse();
   return `<section class="card oilcrew"><h2>🛢 ${t('Olie')}</h2><button class="btn primary huge" data-act="oilRefill">🛢 ${t('Olie bijgevuld')}</button><div class="row2"><button class="btn" data-act="oilInvMenu">📋 ${t('Inventaris')}</button><button class="btn" data-act="oilDelivery">📦 ${t('Levering')}</button></div>
-    ${log.length ? `<ul class="locs small">${log.map((e) => `<li><span>${esc(summary(e).short)}<small> · ${A.fmtDT(e.at)}</small></span></li>`).join('')}</ul>` : ''}</section>`;
+    ${log.length ? `<h3 class="sec">🧾 ${t('Laatst bijgevuld')}</h3><ul class="rlog">${log.map((e) => (e.kind === 'refill' ? logItem(e) : `<li class="rlog"><span class="rl-b"><small>${esc(summary(e).short)} · ${A.fmtDT(e.at)}</small></span></li>`)).join('')}</ul>` : ''}</section>`;
 }
 /* i18n-skip-start */
 /** Tekst voor ntfy-melding en lijst (Nederlands, zoals de overige meldingen). */
 export function summary(e) {
   const o = oilById(e.oilId) || (e.oilName ? { alias: [e.oilName] } : null), m = mach(e.machineId), L = LOCDEF.find((l) => l.id === (e.fromLoc || e.loc));
-  if (e.kind === 'refill') { const s = `${fmtL(e.liters)} L ${short(o)} → ${m?.name || e.machineName || '?'}`; return { short: '🛢 ' + s, title: `🛢 Olie bijgevuld: ${s} – ${e.by || ''}`, text: [`🛢 ${fmtL(e.liters)} L bijgevuld`, `🔧 Machine: ${m?.name || e.machineName || '?'}`, `🧴 Olie: ${o ? oilName(o) : '?'}`, e.hours ? `⏱ Urenstand: ${e.hours} h` : '', `📦 Van: ${L ? L.nl : 'onbekend (niet afgetrokken)'}`].filter(Boolean).join('\n') }; }
+  if (e.kind === 'refill') { const s = `${fmtL(e.liters)} L ${short(o)} → ${m?.name || e.machineName || '?'}`; return { short: '🛢 ' + s, title: `🛢 Olie bijgevuld: ${s} – ${e.by || ''}`, text: [`🛢 ${fmtL(e.liters)} L bijgevuld`, `🔧 Machine: ${m?.name || e.machineName || '?'}`, `🧴 Olie: ${o ? oilName(o) : '?'}`, e.hours ? `⏱ Urenstand: ${e.hours} h` : '', `📦 Van: ${L ? L.nl : 'automatisch (meeste voorraad)'}`, e.note ? `📝 ${e.note}` : ''].filter(Boolean).join('\n') }; }
   if (e.kind === 'delivery') { const s = `${fmtL(e.liters)} L ${short(o)} → ${L?.nl || '?'}`; return { short: '📦 ' + s, title: `📦 Olie geleverd: ${s} – ${e.by || ''}`, text: `📦 Levering: ${fmtL(e.liters)} L ${o ? oilName(o) : e.oilName || '?'}\n📍 Locatie: ${L?.nl || '?'}` }; }
   if (e.kind === 'inv') { const n = Object.keys(e.items || {}).length + (e.newOils || []).length; const sum = Object.values(e.items || {}).reduce((a, v) => a + (+v.liters || 0), 0) + (e.newOils || []).reduce((a, v) => a + (+v.liters || 0), 0); const s = `${L?.nl || '?'}: ${n} soorten, ${fmtL(sum)} L`; return { short: '📋 ' + s, title: `📋 Olie-inventaris ${s} – ${e.by || ''}`, text: `📋 Inventaris ${L?.nl || '?'}\n` + Object.entries(e.items || {}).map(([k, v]) => `• ${short(oilById(k))}: ${fmtL(v.liters)} L`).concat((e.newOils || []).map((v) => `• NIEUW ${v.name}: ${fmtL(v.liters)} L`)).join('\n') }; }
   if (e.kind === 'hours') return { short: `⏱ ${e.value} h`, title: `⏱ Urenstand ${e.value} h – ${e.by || ''}`, text: `⏱ ${e.value} h` };
@@ -315,17 +348,30 @@ function bestLoc(oilId) {
   if (M()?.oil) { const es = locEntries(oilId).sort((a, b) => b.e.liters - a.e.liters); return es[0]?.l.id || ''; }
   const a = ref()?.assign || {}; return LOCS().find((l) => (a[l.id] || []).includes(oilId))?.id || '';
 }
+/** Laatst gebruikte machines (snelle keuze). */
+function recentMachines(n = 4) {
+  const evs = (ST() ? ST().events : A.state.oilLog || []).filter((e) => e.kind === 'refill' && e.machineId && !e.noDeduct);
+  const out = []; for (const e of [...evs].reverse()) { if (!out.includes(e.machineId) && mach(e.machineId)) out.push(e.machineId); if (out.length >= n) break; }
+  return out;
+}
+const oilLine = (m) => (m?.oilId && oilById(m.oilId) ? oilInfo(m) : m ? `<label>${t('Welke olie? (niet bekend voor deze machine)')}<select id="orO">${oilOpts('')}</select></label>` : t('Kies de machine – de olie komt er automatisch bij.'));
+/** Snelle aantekening: machine → liters → (optioneel) notitie. Urenstand, locatie en datum onder "Meer". */
 function refillSheet(ctx) {
   const r = ref(); draft = { kind: 'refill', ctx };
-  const m0 = ctx.m ? mach(ctx.m) : null;
-  A.openSheet(`<h2>🛢 ${t('Olie bijgevuld')}</h2>
-    ${r ? `<label>${t('Machine')}<select id="orM">${machOpts(m0?.id)}</select></label><div id="orOil" class="infobox small">${m0 ? oilInfo(m0) : t('Kies eerst de machine – de juiste oliesoort wordt voorgesteld.')}</div>`
+  const m0 = ctx.m ? mach(ctx.m) : null; const rec = recentMachines();
+  A.openSheet(`<h2>🛢 ${t('Olie bijgevuld')}</h2><p class="muted small">${t('Snelle aantekening: machine, liters, klaar.')}</p>
+    ${r ? `${rec.length ? `<div class="flbl">${t('Recent')}</div><div class="qchips">${rec.map((id) => `<button class="chip ${id === m0?.id ? 'on' : ''}" data-act="oilQM" data-m="${id}">🔧 ${esc(mach(id).name)}</button>`).join('')}</div>` : ''}
+      <label>${t('Machine')}<select id="orM">${machOpts(m0?.id)}</select></label><div id="orOil" class="infobox small">${oilLine(m0)}</div>`
       : `<p class="warnbox small">${t('Nog geen olielijst op dit toestel. Vraag de beheerder om de olie-inventaris-route (WhatsApp-link); tot die tijd kun je machine en olie zelf typen.')}</p><label>${t('Machine')}<input id="orMt" autocomplete="off"></label><label>${t('Oliesoort')}<input id="orOt" autocomplete="off"></label>`}
-    <label>${t('Liters')}<input id="orL" type="number" inputmode="decimal" step="any" min="0"></label>
-    <label>${t('Urenstand (optioneel)')}<input id="orH" type="number" inputmode="numeric" placeholder="${m0?.hoursId ? hrsPH(m0.hoursId) : ''}"></label>
-    <label>${t('Van welke locatie?')}<select id="orFrom">${locOpts(bestLoc(m0?.oilId), m0?.oilId)}</select></label>
-    <label>${t('Datum')}<input id="orD" type="date" value="${today()}"></label>
-    <div class="row sticky"><button class="btn ghost" data-act="closeSheet">${t('Annuleren')}</button><button class="btn primary" data-act="oilRefillSave">${t('Opslaan')}</button></div>`);
+    <label>${t('Liters')}<input id="orL" class="bignum" type="number" inputmode="decimal" step="any" min="0" placeholder="0"></label>
+    <div class="qchips">${[5, 10, 20, 40].map((v) => `<button class="chip" data-act="oilQL" data-v="${v}">${v} L</button>`).join('')}</div>
+    <label>${t('Aantekening (optioneel)')}<input id="orN" maxlength="140" autocomplete="off" placeholder="${t('bijv. lekje bij filter, na olieverversing…')}"></label>
+    <details id="orMore" class="auto"><summary>${t('Meer: urenstand, locatie, datum')}</summary>
+      <label>${t('Urenstand (optioneel)')}<input id="orH" type="number" inputmode="numeric" placeholder="${m0?.hoursId ? hrsPH(m0.hoursId) : ''}"></label>
+      <label>${t('Van welke locatie?')}<select id="orFrom">${locOpts(bestLoc(m0?.oilId), m0?.oilId)}</select></label>
+      <p class="muted small">${t('Niets kiezen is goed: de app trekt het automatisch af van de locatie met de meeste van deze olie.')}</p>
+      <label>${t('Datum')}<input id="orD" type="date" value="${today()}"></label></details>
+    <div class="row sticky"><button class="btn ghost" data-act="closeSheet">${t('Annuleren')}</button><button class="btn primary big" data-act="oilRefillSave">✔ ${t('Opslaan')}</button></div>`);
 }
 const hrsPH = (hid) => { const v = M()?.oil ? lastHours(hid)?.value : hoursDefs().find((h) => h.id === hid)?.last; return v != null ? t('laatst: {v} h', { v }) : ''; };
 function oilInfo(m) { const o = oilById(m.oilId); return `🧴 <b>${esc(short(o))}</b>${o?.alias?.length > 1 ? `<br><small>${o.alias.slice(1).map(esc).join(' · ')}</small>` : ''}${m.samples?.length ? `<br><small>🧪 ${t('monstercode')} ${m.samples.join(', ')}</small>` : ''}`; }
@@ -370,11 +416,11 @@ function onInput(e) {
 }
 function onChange(e) {
   const el = e.target;
-  if (el.id === 'orM') { const m = mach(el.value); $f('#orOil').innerHTML = m ? oilInfo(m) : ''; $f('#orFrom').innerHTML = locOpts(bestLoc(m?.oilId), m?.oilId); $f('#orH').placeholder = m?.hoursId ? hrsPH(m.hoursId) : t('geen urenteller'); }
+  if (el.id === 'orM') { const m = mach(el.value); $f('#orOil').innerHTML = oilLine(m); document.querySelectorAll('[data-act=oilQM]').forEach((b) => b.classList.toggle('on', b.dataset.m === el.value)); $f('#orFrom').innerHTML = locOpts(bestLoc(m?.oilId), m?.oilId); $f('#orH').placeholder = m?.hoursId ? hrsPH(m.hoursId) : t('geen urenteller'); }
   if (el.id === 'odO') $f('#odNewL').hidden = el.value !== '__new';
   if (el.dataset?.oi || el.dataset?.ni) onInput(e);
 }
-function who() { const st = A.state.settings; if (!st.userName) { const n = prompt(t('Wat is je naam? (komt in de melding)')); if (n?.trim()) { st.userName = n.trim(); A.save(); } } return st.userName || (A.isCrew() ? t('bemanning') : t('beheer')); }
+function who() { const st = A.state.settings; return st.userName || (A.isCrew() ? t('bemanning') : t('beheer')); }
 /** Een registratie afhandelen: in Beheer direct verwerken; bij de bemanning via outbox/ntfy naar Beheer. */
 async function dispatch(ev, ctx = {}) {
   const ar = A.state.activeRun;
@@ -392,13 +438,18 @@ const evBase = (kind) => ({ id: `oe-${kind}-${Date.now().toString(36)}-${A.rid()
 export const actions = {
   oilV: (a) => { F.v = a.dataset.v; A.render(); },
   oilRefill: (a) => refillSheet({ m: a.dataset.m }),
+  oilQM: (a) => { const s_ = $f('#orM'); if (!s_) return; s_.value = a.dataset.m; s_.dispatchEvent(new Event('change', { bubbles: true })); $f('#orL')?.focus(); },
+  oilQL: (a) => { const i = $f('#orL'); if (i) { i.value = a.dataset.v; i.dispatchEvent(new Event('input', { bubbles: true })); } },
+  oilLogBy: (a) => { F.logBy = a.dataset.v; A.render(); },
   oilRunRefill: (a) => refillSheet({ run: true, fid: a.dataset.fid }),
   oilRefillSave: () => {
     const L = +$f('#orL').value, mid = $f('#orM')?.value || null, mt = $f('#orMt')?.value.trim();
     if (!mid && !mt) return A.toast(t('Kies de machine'));
     if (!(L > 0)) { $f('#orL').focus(); return A.toast(t('Vul het aantal liters in')); }
-    const m = mach(mid); const h = $f('#orH').value;
-    const ev = { ...evBase('refill'), machineId: mid, machineName: m?.name || mt, oilId: m?.oilId || null, oilName: m ? short(oilById(m.oilId)) : $f('#orOt')?.value.trim() || '', liters: L, hours: h === '' ? null : +h, fromLoc: $f('#orFrom').value || null, date: $f('#orD').value || today() };
+    const m = mach(mid); const h = $f('#orH').value; const oSel = $f('#orO')?.value; const oid = m?.oilId || (oSel && oSel !== '__new' ? oSel : null);
+    if (A.askProfile?.(() => actions.oilRefillSave())) return;
+    const note = ($f('#orN')?.value || '').trim();
+    const ev = { ...evBase('refill'), machineId: mid, machineName: m?.name || mt, oilId: oid, oilName: oid ? short(oilById(oid)) : $f('#orOt')?.value.trim() || '', liters: L, hours: h === '' ? null : +h, fromLoc: $f('#orFrom').value || null, date: $f('#orD').value || today(), ...(note ? { note } : {}) };
     dispatch(ev, draft?.ctx);
   },
   oilDelivery: () => deliverySheet({}),
