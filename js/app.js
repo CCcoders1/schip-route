@@ -8,7 +8,7 @@ import { shipSVG, svgPointToLoc, VIEWS } from './shipmap.js';
 import { t, tx, setTx, getLang, setLang, LANGS, LOCALES } from './i18n.js';
 import { RANK_IDS, RANK_ICON, normRank, rankLabel } from './ranks.js';
 
-const APP_VERSION = '1.10.0';
+const APP_VERSION = '1.11.0';
 const TEST = self.__SRTEST || {}; // alleen tests: { noSplash, noProfile }
 const OB = self.OutboxCore;
 const $ = (s, el = document) => el.querySelector(s);
@@ -1656,7 +1656,7 @@ const MT = initMaint({ oilApply: (run) => OIL.applyRun(run), legacyMaint, state,
 Object.assign(actions, MT.actions);
 const OIL = initOil({ askProfile: (fn) => askProfile(fn), state, save, rid, esc, header, openSheet, closeSheet, toast, render: () => render(), renderRun: () => renderRun(), shareFile, csvCell, fmtDT, tx, isCrew, copyText, persist: () => MT.persist(), openShare: (r) => openShare(r), sendOil: (ev, sum) => sendOil(ev, sum) });
 Object.assign(actions, OIL.actions);
-const DIST = initDist({ state, save, esc, header, openSheet, closeSheet, toast, render: () => render(), go: (...x) => go(...x), view: () => view, MT, rid, fmtDT, openShare: (r) => openShare(r) });
+const DIST = initDist({ state, save, esc, header, openSheet, closeSheet, toast, render: () => render(), go: (...x) => go(...x), view: () => view, MT, rid, fmtDT, openShare: (r) => openShare(r), tx: (o, k) => tx(o, k), loc: (id) => loc(id) });
 Object.assign(actions, DIST.actions);
 
 // ---------- start ----------

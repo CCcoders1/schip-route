@@ -57,7 +57,7 @@ export function initMaint(api) {
   $f('#fileMarad')?.addEventListener('change', async (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) readFile(f); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.id === 'mPw') { e.preventDefault(); actions.mUnlock(); } });
   if (A.legacyMaint) migrateLegacy(A.legacyMaint);
-  return { distLists, distRoute, rankOverview, rankRoundsHTML, view, actions, applyRun, applyPending, ensureMaint, runExtra, maradFields, persist, refreshTemplates, rankNames, templateInfo, sugCount, todayHTML, startFixed, needsReunlock, slimDefault, weekStats };
+  return { distLists, distRoute, tacticalOrder, byUrgency, rankOverview, rankRoundsHTML, view, actions, applyRun, applyPending, ensureMaint, runExtra, maradFields, persist, refreshTemplates, rankNames, templateInfo, sugCount, todayHTML, startFixed, needsReunlock, slimDefault, weekStats };
 }
 const $f = (s) => document.querySelector(s);
 
@@ -375,11 +375,11 @@ export function distLists() {
   if (m?.tasks) {
     allSug();
     for (const sg of FX.rounds) out.push({ key: sg.key, kind: 'fixed', icon: kIcon(sg), name: sugName(sg), period: periodLbl(sg.period), ranks: sg.ranks,
-      tasks: [...sg.tasks].sort(byDue).map((x) => { const c = comp(x), l = A.loc(x.locId), st = status(x); return { key: x.id, title: x.name, sub: [c ? (c.code ? c.code + ' – ' : '') + c.name : '', l ? A.tx(l, 'name') : ''].filter(Boolean).join(' · '), ranks: x.rank, st, due: x.dueDate ? fmtD(x.dueDate) : '', soon: st === 'overdue' || st === 'week' || fixedDue0(sg.period, x), marad: x.id }; }) });
+      tasks: [...sg.tasks].sort(byDue).map((x) => { const c = comp(x), l = A.loc(x.locId), st = status(x); return { key: x.id, title: x.name, sub: [c ? (c.code ? c.code + ' – ' : '') + c.name : '', l ? A.tx(l, 'name') : ''].filter(Boolean).join(' · '), ranks: x.rank, st, due: x.dueDate ? fmtD(x.dueDate) : '', soon: st === 'overdue' || st === 'week' || fixedDue0(sg.period, x), marad: x.id, dd: x.dueDate || '', loc: x.locId || '' }; }) });
   }
   for (const r of A.state.routes.filter((x) => !x.templateId && !x.importedAt && x.source !== 'dist' && x.steps.length)) {
     out.push({ key: 'r:' + r.id, kind: 'route', icon: '🧭', name: A.tx(r, 'name'), period: '', ranks: [], routeId: r.id,
-      tasks: r.steps.map((st) => { const l = A.loc(st.locationId); const mx = st.marad?.id && m?.tasks?.find((y) => y.id === st.marad.id); return { key: st.id, title: A.tx(st, 'title'), sub: l ? A.tx(l, 'name') : '', ranks: mx ? mx.rank : [], st: mx ? status(mx) : 'none', due: mx?.dueDate ? fmtD(mx.dueDate) : '', soon: true, step: st.id }; }) });
+      tasks: r.steps.map((st) => { const l = A.loc(st.locationId); const mx = st.marad?.id && m?.tasks?.find((y) => y.id === st.marad.id); return { key: st.id, title: A.tx(st, 'title'), sub: l ? A.tx(l, 'name') : '', ranks: mx ? mx.rank : [], st: mx ? status(mx) : 'none', due: mx?.dueDate ? fmtD(mx.dueDate) : '', soon: true, step: st.id, dd: mx?.dueDate || '' }; }) });
   }
   return out;
 }
@@ -388,13 +388,31 @@ const fixedDue0 = (period, x) => { if (!x.dueDate) return false; return (new Dat
 export function distRoute(items, { name, assignee = '' }) {
   const ids = new Set(items.filter((i) => i.marad).map((i) => i.marad));
   const tasks = (M()?.tasks || []).filter((x) => ids.has(x.id));
-  const r = buildRoute(tasks, { name, assignee, strategy: slimDefault(), description: '' });
+  const r = buildRoute(tasks, { name, assignee, strategy: slimDefault(), description: '' }); const extra = new Map();
   for (const i of items.filter((y) => y.step)) {
     const src = A.state.routes.find((x) => x.id === i.routeId)?.steps.find((y) => y.id === i.step); if (!src) continue;
-    r.steps.push({ ...JSON.parse(JSON.stringify(src)), id: A.rid() });
+    const id = A.rid(); r.steps.push({ ...JSON.parse(JSON.stringify(src)), id }); extra.set(id, { st: i.st, dd: i.dd });
   }
-  r.steps = A.orderSteps(r.steps, A.state, slimDefault());
+  r.steps = tacticalOrder(r.steps, extra);
   return r;
+}
+/** Urgentie: te laat → ≤ 7 d → ≤ 30 d → later → draaiuren → geen datum; binnen status op vervaldatum (meest te laat eerst). */
+export const urgency = (x) => [ORDER[x.st] ?? 5, x.dd || '9999'];
+export const byUrgency = (a, b) => { const ka = urgency(a), kb = urgency(b); return ka[0] - kb[0] || ka[1].localeCompare(kb[1]); };
+/** Tactische looproute: slimme volgorde (voor→achter / achter→voor, elke plek één keer, machinekamer als één blok);
+ *  binnen dezelfde plek eerst de te late taken. Klik- of selectievolgorde speelt geen rol. */
+export function tacticalOrder(steps, extra = new Map()) {
+  const tk = new Map((M()?.tasks || []).map((x) => [x.id, x]));
+  const urg = (s) => { const x = s.marad?.id && tk.get(s.marad.id); if (x) return { st: status(x), dd: x.dueDate || '' }; return extra.get(s.id) || { st: 'none', dd: '' }; };
+  // vaste beginvolgorde (urgentie, dan naam/ID) → uitkomst hangt niet af van de volgorde van aantikken
+  const k0 = (s) => s.marad?.id || A.tx(s, 'title') + '|' + s.id;
+  const pre = steps.map((s) => ({ s, u: urg(s), k: k0(s) })).sort((a, b) => byUrgency(a.u, b.u) || a.k.localeCompare(b.k)).map((o) => o.s);
+  const ordered = A.orderSteps(pre, A.state, slimDefault());
+  const out = []; let run = [];
+  const flush = () => { out.push(...run.map((s, i) => ({ s, i, u: urg(s) })).sort((a, b) => byUrgency(a.u, b.u) || a.i - b.i).map((o) => o.s)); run = []; };
+  for (const s of ordered) { if (run.length && run[0].locationId !== s.locationId) flush(); run.push(s); }
+  flush();
+  return out;
 }
 
 // ---------- rangen (overzicht + rangpagina) ----------

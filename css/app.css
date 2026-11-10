@@ -459,3 +459,16 @@ html:has(.dfoot) { scroll-padding-top: 90px; scroll-padding-bottom: 170px; }
 #dName { width: 100%; box-sizing: border-box; }
 .donrow { width: 100%; justify-content: flex-start; margin: 4px 0 10px; } .donrow.on { border: 2px solid var(--ok); }
 html:has(.dtasks, .dlist, .dgroup) header.top h1 { font-size: 1.3rem; line-height: 1.2; }
+/* ---------- v1.11 selecteren → stuur selectie ---------- */
+.dtask { cursor: pointer; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; }
+.dtask.st-overdue { border-left: 5px solid var(--bad, #c62828); } .dtask.st-week { border-left: 5px solid #ef6c00; } .dtask.st-month { border-left: 5px solid #f9a825; }
+.dtask.sel { background: color-mix(in srgb, var(--pri) 14%, var(--card)); border-color: var(--pri); box-shadow: 0 0 0 2px var(--pri) inset; }
+.dchk { flex: none; width: 34px; height: 34px; border-radius: 10px; border: 2px solid var(--line); display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 1.1rem; background: var(--bg); }
+.dtask.sel .dchk { background: var(--pri); color: var(--pri-fg); border-color: var(--pri); }
+.dtags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
+.tag.yellow { background: #fff3c4; color: #6b5200; } .tag.ghost { background: none; border: 1px solid var(--line); color: var(--muted); } .tag.sent { background: var(--chip); font-weight: 700; }
+.dsec { margin: 14px 0 2px; font-size: 1rem; } .dsec.red { color: var(--bad, #c62828); } .dsec.orange { color: #ef6c00; } .dsec.yellow { color: #a07800; }
+.dselbar { align-items: center; flex-wrap: wrap; gap: 6px; } .dselcount { flex: 1 0 100%; }
+.dprev { margin: 0 0 6px; color: var(--muted); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.dfoot .btn[disabled] { opacity: .45; }
+.dtasks { padding-bottom: calc(150px + env(safe-area-inset-bottom)); }
