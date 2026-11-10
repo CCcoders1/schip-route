@@ -3,6 +3,7 @@
 import { t, getLang, LOCALES } from './i18n.js';
 import { parseMarad, mergeMarad, autoLocation, status, dueInDays, isHours, markDone, undoDone, todayISO, parseDate } from './marad.js';
 import { suggestions, findSuggestion, rankStats, periodKey, fixedRounds } from './suggest.js';
+import { normMaint, normRank, rankLabel, rankLabels, MARAD_RANKS, RANK_IDS } from './ranks.js';
 
 let A; // helpers uit app.js
 const F = { view: 'tree', st: 'all', loc: '', q: '' };
@@ -56,7 +57,7 @@ export function initMaint(api) {
   $f('#fileMarad')?.addEventListener('change', async (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) readFile(f); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.id === 'mPw') { e.preventDefault(); actions.mUnlock(); } });
   if (A.legacyMaint) migrateLegacy(A.legacyMaint);
-  return { view, actions, applyRun, applyPending, ensureMaint, runExtra, maradFields, persist, refreshTemplates, rankNames, templateInfo, sugCount, todayHTML, startFixed, needsReunlock, slimDefault, weekStats };
+  return { rankOverview, rankRoundsHTML, view, actions, applyRun, applyPending, ensureMaint, runExtra, maradFields, persist, refreshTemplates, rankNames, templateInfo, sugCount, todayHTML, startFixed, needsReunlock, slimDefault, weekStats };
 }
 const $f = (s) => document.querySelector(s);
 
@@ -77,7 +78,7 @@ async function migrateLegacy(lm) {
 export function ensureMaint() {
   if (loaded) return Promise.resolve(M());
   return (loading ||= (async () => {
-    try { const m = await OBK().get('maint'); if (m?.tasks && !A.state.maint) A.state.maint = m; } catch (e) { console.warn('MARAD laden', e); }
+    try { const m = await OBK().get('maint'); if (m?.tasks && !A.state.maint) A.state.maint = normMaint(m); } catch (e) { console.warn('MARAD laden', e); }
     loaded = true;
     if (M()?.tasks) { relink(); afterLoad(false); }
     return M();
@@ -225,7 +226,7 @@ function filtered() {
 function counts(tasks) { const c = { overdue: 0, week: 0, month: 0, later: 0, hours: 0, none: 0 }; for (const x of tasks) c[status(x)]++; return c; }
 function taskRow(x) {
   const st = status(x); const l = A.loc(x.locId);
-  return `<div class="mtask st-${st}"><label class="mchk"><input type="checkbox" data-msel="${x.id}" ${sel.has(x.id) ? 'checked' : ''} aria-label="${t('Selecteren')}"></label><div class="mt-body" data-act="mTask" data-id="${x.id}">${dot(st)}<b>${A.esc(x.name)}</b><small>${isHours(x) ? '' : fmtD(x.dueDate) + ' · '}<span class="due">${dueText(x)}</span> · ${ivText(x.interval)}</small><small>${l ? '📍 ' + A.esc(A.tx(l, 'name')) : `<span class="unl">📍 ${t('niet gekoppeld')}</span>`} · 👤 ${A.esc(x.rank.join(', ') || '—')}${x.appDone ? ` · <span class="okc">✔ ${t('afgemeld {d}', { d: fmtD(x.appDone.date) })}</span>` : ''}</small></div></div>`;
+  return `<div class="mtask st-${st}"><label class="mchk"><input type="checkbox" data-msel="${x.id}" ${sel.has(x.id) ? 'checked' : ''} aria-label="${t('Selecteren')}"></label><div class="mt-body" data-act="mTask" data-id="${x.id}">${dot(st)}<b>${A.esc(x.name)}</b><small>${isHours(x) ? '' : fmtD(x.dueDate) + ' · '}<span class="due">${dueText(x)}</span> · ${ivText(x.interval)}</small><small>${l ? '📍 ' + A.esc(A.tx(l, 'name')) : `<span class="unl">📍 ${t('niet gekoppeld')}</span>`} · 👤 ${A.esc(rankLabels(x.rank) || '—')}${x.appDone ? ` · <span class="okc">✔ ${t('afgemeld {d}', { d: fmtD(x.appDone.date) })}</span>` : ''}</small></div></div>`;
 }
 function buildTree(tasks) {
   const root = { key: '', kids: new Map(), tasks: [] };
@@ -258,19 +259,19 @@ function selbar() {
   return sel.size ? `<div class="selbar"><span>${t('{n} geselecteerd', { n: sel.size })}</span><button class="btn ok" data-act="mMakeRoute">${t('🧭 Maak route')}</button><button class="iconbtn" data-act="mSelClear" aria-label="${t('Selectie wissen')}">✕</button></div>` : '';
 }
 // ---------- functies (Rank) ----------
-const DEFAULT_RANKS = ['Master', 'Chief Officer', '2nd Officer', 'Junior Officer', 'Engineer', 'Junior engineer', 'Marof'];
+const DEFAULT_RANKS = MARAD_RANKS; // 'Junior Officer' = alias van '2nd Officer' (zie ranks.js)
 /** Functienamen: uit de MARAD-gegevens (als ontgrendeld), anders een standaardlijst. */
 export function rankNames() { const rs = rankStats(M()).map((r) => r.rank); return rs.length ? rs : DEFAULT_RANKS; }
-const myRank = () => A.state.settings.myRank || 'Engineer';
+const myRank = () => normRank(A.state.settings.myRank) || 'Engineer';
 function rankSel() {
   const st = A.state.settings;
   if (!Array.isArray(st.rankSel)) { st.rankSel = M()?.tasks?.some((x) => x.rank.includes(myRank())) ? [myRank()] : []; A.save(); }
-  return new Set(st.rankSel);
+  return new Set(st.rankSel.map(normRank));
 }
 const rankOk = (x, rs = rankSel()) => !rs.size || x.rank.some((r) => rs.has(r));
 function rankChips() {
   const rs = rankSel(); const my = myRank();
-  return `<div class="chips rchips" role="group" aria-label="${t('Functie')}"><button class="chip ${rs.size ? '' : 'on'}" data-act="mRankAll">${t('Alle functies')}</button>${rankStats(M()).map((r) => `<button class="chip ${rs.has(r.rank) ? 'on' : ''}" data-act="mRank" data-v="${A.esc(r.rank)}" aria-pressed="${rs.has(r.rank)}">${r.rank === my ? '⭐ ' : ''}${A.esc(r.rank)} <i class="cn">${r.n}</i>${r.overdue ? `<b class="cr" title="${t('Te laat')}">${r.overdue}</b>` : ''}</button>`).join('')}</div>`;
+  return `<div class="chips rchips" role="group" aria-label="${t('Functie')}"><button class="chip ${rs.size ? '' : 'on'}" data-act="mRankAll">${t('Alle functies')}</button>${rankStats(M()).map((r) => `<button class="chip ${rs.has(r.rank) ? 'on' : ''}" data-act="mRank" data-v="${A.esc(r.rank)}" aria-pressed="${rs.has(r.rank)}">${r.rank === my ? '⭐ ' : ''}${A.esc(rankLabel(r.rank))} <i class="cn">${r.n}</i>${r.overdue ? `<b class="cr" title="${t('Te laat')}">${r.overdue}</b>` : ''}</button>`).join('')}</div>`;
 }
 
 export function view() {
@@ -285,7 +286,7 @@ export function view() {
   h += `<p class="shipsub">🔧 MARAD · ${A.esc(m.ship || A.state.shipName)} · ${t('{n} taken', { n: m.tasks.length })} · ${t('import {d}', { d: A.fmtDT(m.lastImport?.at) })}</p>`;
   h += rankChips();
   h += `<div class="mstats"><button data-act="mQuick" data-v="overdue">${dot('overdue')}<b>${c.overdue}</b><small>${t('Te laat')}</small></button><button data-act="mQuick" data-v="week">${dot('week')}<b>${c.week}</b><small>${t('≤ 7 d')}</small></button><button data-act="mQuick" data-v="month">${dot('month')}<b>${c.month}</b><small>${t('≤ 30 d')}</small></button><button data-act="mQuick" data-v="all">${dot('later')}<b>${c.later}</b><small>${t('Later')}</small></button><button data-act="mQuick" data-v="all">${dot('hours')}<b>${c.hours}</b><small>${t('Draaiuren')}</small></button></div>`;
-  if (rs.size) h += `<p class="muted small">👤 ${A.esc([...rs].join(', '))} · ${t('{n} van {m} taken', { n: mine.length, m: m.tasks.length })}</p>`;
+  if (rs.size) h += `<p class="muted small">👤 ${A.esc(rankLabels([...rs]))} · ${t('{n} van {m} taken', { n: mine.length, m: m.tasks.length })}</p>`;
   const vb = (k, lbl) => `<button class="${F.view === k ? 'on' : ''}" data-act="mView" data-v="${k}">${lbl}</button>`;
   h += `<div class="seg mviews">${vb('tree', t('🌳 Boom'))}${vb('list', t('☰ Lijst'))}${vb('sug', t('💡 Voorstel'))}${vb('week', t('📅 Week'))}${vb('done', t('✔ Afgemeld') + (open_ ? ` (${open_})` : ''))}</div>`;
   if (F.view === 'week') return h + weekHTML();
@@ -307,7 +308,7 @@ const KIND_ICON = { safety: '🦺', mk: '⚙️', week: '📅', month: '🗓', h
 const kIcon = (sg) => (sg.kind === 'fixed' ? sg.fixed.icon || '📌' : KIND_ICON[sg.kind]);
 function sugName(sg) {
   if (sg.kind === 'fixed') return sg.fixed.name?.[getLang()] || sg.fixed.name?.nl || sg.fixed.id;
-  const f = sg.ranks.join(' / ');
+  const f = sg.ranks.map(rankLabel).join(' / ');
   return { safety: t('Wekelijkse safety-ronde – {f}', { f }), mk: t('Wekelijkse machinekamerronde – {f}', { f }), week: t('Wekelijkse ronde – {f}', { f }), month: t('Maandelijkse ronde – {f}', { f }), hours: t('Draaiuren-onderhoud – {f}', { f }), overdue: t('Achterstallig onderhoud – {f}', { f }) }[sg.kind];
 }
 const sugDesc = (sg) => (sg.kind === 'fixed' ? t('Vaste ronde · {p}', { p: periodLbl(sg.period) }) : { safety: t('Taken met interval ≤ 2 weken: safety, reddingsmiddelen, brandbestrijding, alarmen.'), mk: t('Taken met interval ≤ 2 weken in machinekamer en technische systemen.'), week: t('Alle taken met interval ≤ 2 weken.'), month: t('Alle taken met interval van een maand.'), hours: t('Taken op draaiuren (te laat of bijna aan de beurt).'), overdue: t('Alle taken die nu te laat zijn.') }[sg.kind]);
@@ -323,7 +324,7 @@ const tplFor = (key) => (A.state.templates || []).find((x) => x.key === key);
 function sugCard(sg) {
   const tp = tplFor(sg.key); const r = tp && A.state.routes.find((x) => x.id === tp.routeId);
   const near = sg.tasks.filter((x) => ['overdue', 'week'].includes(status(x))).length;
-  return `<article class="card sug k-${sg.kind}" data-k="${A.esc(sg.key)}"><h3>${kIcon(sg)} ${A.esc(sugName(sg))}</h3><p class="muted small">👤 ${A.esc(sg.ranks.join(', '))} · ${sugDesc(sg)}</p>
+  return `<article class="card sug k-${sg.kind}" data-k="${A.esc(sg.key)}"><h3>${kIcon(sg)} ${A.esc(sugName(sg))}</h3><p class="muted small">👤 ${A.esc(rankLabels(sg.ranks))} · ${sugDesc(sg)}</p>
     <p class="sugstats"><span class="tag">${t('{n} taken', { n: sg.tasks.length })}</span> <span class="tag">${t('{n} nu aan de beurt', { n: sg.due.length })}</span>${sg.overdue ? ` <span class="tag warn">${t('{n} te laat', { n: sg.overdue })}</span>` : ''}${sg.kind !== 'hours' && sg.nextDue ? ` <small>· ${t('volgende: {d}', { d: fmtD(sg.nextDue) })}</small>` : ''}${near && near !== sg.due.length ? ` <small>· ${t('{n} binnen 7 d', { n: near })}</small>` : ''}</p>
     ${sg.noLoc ? `<p class="unl small">📍 ${t('{n} taken zonder locatie (kies er een bij Maak route of koppel ze in de lijst)', { n: sg.noLoc })}</p>` : ''}
     ${tp ? `<p class="okc small">🔁 ${t('Sjabloon actief ({p}) → route "{r}"', { p: periodLbl(tp.period), r: A.esc(r ? A.tx(r, 'name') : tp.name) })}${tp.assignee ? ' · 👤 ' + A.esc(tp.assignee) : ''}</p>` : ''}
@@ -360,11 +361,32 @@ function buildRoute(tasks, { name, assignee = '', strategy = 'kortste', fallback
     const c = comp(x);
     return {
       id: A.rid(), locationId: A.loc(x.locId) ? x.locId : fallback || null, title: x.name,
-      instruction: [c ? (c.code ? c.code + ' – ' : '') + c.name : '', ivText(x.interval), x.rank.length ? '👤 ' + x.rank.join(', ') : ''].filter(Boolean).join(' · '),
+      instruction: [c ? (c.code ? c.code + ' – ' : '') + c.name : '', ivText(x.interval), x.rank.length ? '👤 ' + rankLabels(x.rank) : ''].filter(Boolean).join(' · '),
       fields: maradFields(x), marad: { id: x.id, comp: c ? (c.code ? c.code + ' – ' : '') + c.name : '', interval: x.interval?.text || '', due: x.dueDate }, workCard: x.workCard || '',
     };
   });
   return { id: 'r-' + A.rid(), name, description: description || t('Uit MARAD: {n} taken', { n: steps.length }), assignee, createdAt: Date.now(), updatedAt: Date.now(), source: 'marad', steps: A.orderSteps(steps, A.state, strategy) };
+}
+
+// ---------- rangen (overzicht + rangpagina) ----------
+/** Per rang: aantal vaste rondes, taken en te-late taken (null = MARAD niet ontgrendeld). */
+export function rankOverview() {
+  const m = M(); const has = !!m?.tasks; if (has) allSug();
+  const st = has ? rankStats(m) : [];
+  return RANK_IDS.map((r) => { const x = st.find((y) => y.rank === r); return { rank: r, rounds: has ? FX.rounds.filter((sg) => sg.ranks.includes(r)).length : null, tasks: x?.n || 0, overdue: x?.overdue || 0 }; });
+}
+/** Vaste rondes van een rang als kaarten met één-tik delen (Stagiair: alle vaste rondes, om er één te geven). */
+export function rankRoundsHTML(rank, { crew = false } = {}) {
+  const m = M(); if (!m?.tasks) return '';
+  allSug();
+  const xs = (rank === 'Stagiair' ? FX.rounds : FX.rounds.filter((sg) => sg.ranks.includes(rank)))
+    .map((sg) => ({ sg, soon: soonOf(sg), od: sg.tasks.filter((x) => status(x) === 'overdue').length }))
+    .sort((a, b) => b.od - a.od || b.soon.length - a.soon.length);
+  if (!xs.length) return `<p class="muted small">${t('Geen vaste rondes voor deze rang.')}</p>`;
+  return xs.map(({ sg, soon, od }) => `<article class="card today k-fixed ${od ? 'has-od' : ''}" data-k="${A.esc(sg.key)}"><div class="thead"><h3>${kIcon(sg)} ${A.esc(sugName(sg))}</h3><p class="muted small">👤 ${A.esc(rankLabels(sg.ranks))} · ${periodLbl(sg.period)}</p></div>
+      <p class="tcounts">${od ? `<span class="tag red">${t('{n} te laat', { n: od })}</span> ` : ''}<span class="tag orange">${t('{n} deze week', { n: Math.max(0, soon.length - od) })}</span> <small class="muted">${t('van {n} taken', { n: sg.tasks.length })}</small></p>
+      ${crew ? `<button class="btn ok huge" data-act="tdStart" data-k="${A.esc(sg.key)}" ${soon.length ? '' : 'disabled'}>${t('▶ Start ronde')} <small>(${soon.length})</small></button>`
+    : `<div class="row"><button class="btn wa" data-act="sgSend" data-k="${A.esc(sg.key)}" data-rank="${A.esc(rank)}">${t('📲 Stuur naar {rank}', { rank: A.esc(rankLabel(rank)) })}</button><button class="btn small ghost" data-act="sgShow" data-k="${A.esc(sg.key)}">${t('☰ Taken bekijken')}</button></div>`}</article>`).join('');
 }
 
 // ---------- Vandaag (startscherm Beheer) ----------
@@ -382,7 +404,7 @@ export function todayHTML() {
   else if (!rounds.length) h += `<p class="okbox">${t('✔ Geen vaste rondes aan de beurt deze week.')}</p>`;
   for (const { sg, soon, od, mine } of rounds) {
     const tp = tplFor(sg.key);
-    h += `<article class="card today k-fixed ${od ? 'has-od' : ''}" data-k="${A.esc(sg.key)}"><div class="thead"><h3>${kIcon(sg)} ${A.esc(sugName(sg))}${mine ? ' <span title="' + t('Mijn functie') + '">⭐</span>' : ''}</h3><p class="muted small">👤 ${A.esc(sg.ranks.join(', '))} · ${periodLbl(sg.period)}${tp ? ' · 🔁' : ''}</p></div>
+    h += `<article class="card today k-fixed ${od ? 'has-od' : ''}" data-k="${A.esc(sg.key)}"><div class="thead"><h3>${kIcon(sg)} ${A.esc(sugName(sg))}${mine ? ' <span title="' + t('Mijn functie') + '">⭐</span>' : ''}</h3><p class="muted small">👤 ${A.esc(rankLabels(sg.ranks))} · ${periodLbl(sg.period)}${tp ? ' · 🔁' : ''}</p></div>
       <p class="tcounts">${od ? `<span class="tag red">${t('{n} te laat', { n: od })}</span> ` : ''}<span class="tag orange">${t('{n} deze week', { n: soon.length - od })}</span> <small class="muted">${t('van {n} taken', { n: sg.tasks.length })}</small></p>
       <button class="btn ok huge" data-act="tdStart" data-k="${A.esc(sg.key)}">${t('▶ Start ronde')} <small>(${soon.length})</small></button>
       <div class="row"><button class="btn small" data-act="sgSend" data-k="${A.esc(sg.key)}">${t('📲 Stuur naar…')}</button><button class="btn small ghost" data-act="sgShow" data-k="${A.esc(sg.key)}">${t('☰ Taken bekijken')}</button></div></article>`;
@@ -391,7 +413,7 @@ export function todayHTML() {
   const mine = m.tasks.filter((x) => rankOk(x, rs));
   const od = mine.filter((x) => status(x) === 'overdue').sort(byDue), wk = mine.filter((x) => status(x) === 'week').sort(byDue);
   const lim = (xs) => xs.slice(0, 6).map(taskRow).join('');
-  const who = rs.size ? ` <small>· 👤 ${A.esc([...rs].join(', '))}</small>` : '';
+  const who = rs.size ? ` <small>· 👤 ${A.esc(rankLabels([...rs]))}</small>` : '';
   h += `<h3 class="sec red">🔴 ${t('Te laat')} <small>(${od.length})</small>${who}</h3><div class="mlist">${lim(od) || `<p class="muted small">${t('Niets te laat.')}</p>`}</div>${od.length > 6 ? `<button class="btn small ghost" data-act="mQuickGo" data-v="overdue">${t('Alle {n} tonen', { n: od.length })}</button>` : ''}`;
   h += `<h3 class="sec orange">🟠 ${t('Binnenkort (≤ 7 dagen)')} <small>(${wk.length})</small>${who}</h3><div class="mlist">${lim(wk) || `<p class="muted small">${t('Niets binnen 7 dagen.')}</p>`}</div>${wk.length > 6 ? `<button class="btn small ghost" data-act="mQuickGo" data-v="week">${t('Alle {n} tonen', { n: wk.length })}</button>` : ''}`;
   return h;
@@ -436,7 +458,7 @@ function weekHTML() {
   h += `<h3 class="sec">✔ ${t('Gedaan deze week')} <small>(${w.done.length})</small></h3>`;
   if (!w.done.length) h += `<p class="muted small">${t('Nog niets afgemeld in deze week.')}</p>`;
   for (const [p, xs] of by) h += `<h4 class="odate">👤 ${A.esc(p)} <small>(${xs.length})</small></h4><ul class="signoffs">${xs.map((s) => `<li><b>${A.esc(s.task)}</b><small>✔ ${fmtD(s.doneDate)}${s.remarks ? ' · 📝 ' + A.esc(s.remarks) : ''}${s.enteredInMarad ? ' · ' + t('ingevoerd in MARAD') : ''}</small></li>`).join('')}</ul>`;
-  h += `<h3 class="sec">⏳ ${t('Nog open deze week')} <small>(${w.open.length})</small>${rankSel().size ? ` <small>· 👤 ${A.esc([...rankSel()].join(', '))}</small>` : ''}</h3><div class="mlist">${w.open.slice(0, 40).map(taskRow).join('') || `<p class="okbox">${t('✔ Alles gedaan voor deze week.')}</p>`}</div>`;
+  h += `<h3 class="sec">⏳ ${t('Nog open deze week')} <small>(${w.open.length})</small>${rankSel().size ? ` <small>· 👤 ${A.esc(rankLabels([...rankSel()]))}</small>` : ''}</h3><div class="mlist">${w.open.slice(0, 40).map(taskRow).join('') || `<p class="okbox">${t('✔ Alles gedaan voor deze week.')}</p>`}</div>`;
   if (w.open.length > 40) h += `<p class="muted small">${t('+ {n} meer – zie Lijst', { n: w.open.length - 40 })}</p>`;
   return h;
 }
@@ -475,7 +497,7 @@ function taskSheet(x) {
       ${hrs ? `<dt>${t('Vervalt bij')}</dt><dd>${x.dueRunHours != null ? fmtN(x.dueRunHours) + ' h' : '—'}</dd>` : `<dt>${t('Vervaldatum')}</dt><dd>${fmtD(x.dueDate)}${x.dueWeek ? ` (${t('week {n}', { n: x.dueWeek })})` : ''}</dd>`}
       <dt>${t('Interval')}</dt><dd>${ivText(x.interval)}</dd>
       <dt>${t('Laatst uitgevoerd')}</dt><dd>${hrs ? `${x.lastRunHours != null ? fmtN(x.lastRunHours) + ' h' : '—'}${x.lastDone ? ' · ' + fmtD(x.lastDone) : ''}` : fmtD(x.lastDone)}${x.daysAgo != null && !x.appDone ? ` (${hrs ? t('{n} u geleden', { n: fmtN(x.daysAgo) }) : t('{n} d geleden', { n: x.daysAgo })})` : ''}</dd>
-      <dt>${t('Functie')}</dt><dd>${A.esc(x.rank.join(', ') || '—')}</dd>
+      <dt>${t('Functie')}</dt><dd>${A.esc(rankLabels(x.rank) || '—')}</dd>
       ${x.taskType && x.taskType !== '0' ? `<dt>${t('Soort')}</dt><dd>${A.esc(x.taskType)}</dd>` : ''}
     </dl>`;
   if (hrs) h += `<p class="muted small">${t('Draaiuren-taken: de app rekent geen nieuwe vervaldatum uit, tenzij je bij afmelden de urenstand invult.')}</p>`;
@@ -547,28 +569,28 @@ export function templateInfo(r) {
 }
 // ---------- versturen naar een persoon (WhatsApp) ----------
 function sortContacts(ranks) {
-  const rk = new Set((ranks || []).map((r) => r.toLowerCase()));
-  return A.state.contacts.map((c) => ({ ...c, match: !!c.func && rk.has(c.func.toLowerCase()) })).sort((a, b) => b.match - a.match);
+  const rk = new Set((ranks || []).map((r) => normRank(r).toLowerCase()));
+  return A.state.contacts.map((c) => ({ ...c, match: !!c.func && rk.has(normRank(c.func).toLowerCase()) })).sort((a, b) => b.match - a.match);
 }
 let SEND = null;
-function sendSheet(sg) {
+function sendSheet(sg, intended = '') {
   const tasks = sg.due.length ? sg.due : sg.tasks;
   const nUn = tasks.filter((x) => !A.loc(x.locId)).length;
-  const cs = sortContacts(sg.ranks);
-  SEND = { sg, tasks, id: 'r-' + A.rid() };
-  A.openSheet(`<h2>${t('📲 Stuur naar…')}</h2><p><b>${A.esc(sugName(sg))}</b> · ${t('{n} taken', { n: tasks.length })}</p>
+  const cs = sortContacts(intended ? [intended] : sg.ranks);
+  SEND = { sg, tasks, id: 'r-' + A.rid(), intended: normRank(intended) || '' };
+  A.openSheet(`<h2>${t('📲 Stuur naar…')}</h2><p><b>${A.esc(sugName(sg))}</b> · ${t('{n} taken', { n: tasks.length })}${intended ? ` · 🎖 ${t('voor {rank}', { rank: A.esc(rankLabel(intended)) })}` : ''}</p>
     ${nUn ? `<div class="warnbox">${t('{n} taken hebben nog geen locatie. Kies een locatie voor deze taken:', { n: nUn })}${A.locSelect(commonLoc(sg.tasks), 'id="sgLoc"', true)}</div>` : ''}
     <div class="stack" id="sgList">${cs.map((c) => A.waNum(c.phone)
       ? `<a class="btn wa ${c.match ? 'big' : ''}" href="#" target="_blank" rel="noopener" data-act="sgWa" data-cid="${c.id}">🟢 ${c.match ? '⭐ ' : ''}${A.esc(c.name)}${c.func ? ` <small>· ${A.esc(c.func)}</small>` : ''}</a>`
       : `<button class="btn ghost small" data-act="editContact" data-id="${c.id}">${t('{name}: telefoon toevoegen', { name: A.esc(c.name) })}</button>`).join('')}</div>
-    ${cs.some((c) => c.match) ? `<p class="muted small">⭐ ${t('= functie past bij deze route ({f}).', { f: A.esc(sg.ranks.join(', ')) })}</p>` : `<p class="muted small">${t('Tip: geef personen een functie (Meer → Personen), dan staat de juiste persoon bovenaan.')}</p>`}
+    ${cs.some((c) => c.match) ? `<p class="muted small">⭐ ${t('= functie past bij deze route ({f}).', { f: A.esc(rankLabels(sg.ranks)) })}</p>` : `<p class="muted small">${t('Tip: geef personen een functie (Meer → Personen), dan staat de juiste persoon bovenaan.')}</p>`}
     <div class="row"><button class="btn small" data-act="editContact">${t('+ Persoon')}</button><button class="btn small" data-act="sgOther">${t('📤 Andere manier (link/bestand)')}</button></div>
     <p class="muted small" id="sgInfo"></p>`, { sgSend: true });
   fillSendLinks();
 }
 function sendRoute(c) {
   const r = buildRoute(SEND.tasks, { name: sugName(SEND.sg), assignee: c?.name || '', fallback: $f('#sgLoc')?.value || '' });
-  r.id = SEND.id; return r;
+  r.id = SEND.id; if (SEND.intended) r.intendedRank = SEND.intended; return r;
 }
 async function fillSendLinks() {
   let len = 0;
@@ -639,7 +661,7 @@ export const actions = {
   mRankAll: () => { A.state.settings.rankSel = []; A.save(); A.render(); },
   sgRoute: (a) => { const sg = sugBy(a.dataset.k); if (sg) makeRouteSheet({ sg, tpl: !!a.dataset.tpl }); },
   sgShow: (a) => { const sg = sugBy(a.dataset.k); if (sg) sugTasksSheet(sg); },
-  sgSend: (a) => { const sg = sugBy(a.dataset.k); if (sg) sendSheet(sg); },
+  sgSend: (a) => { const sg = sugBy(a.dataset.k); if (sg) sendSheet(sg, a.dataset.rank || ''); },
   sgWa: (a) => { const c = A.state.contacts.find((x) => x.id === a.dataset.cid); saveSent(c, 'whatsapp'); A.toast(t('Route opgeslagen en via WhatsApp verstuurd naar {name}', { name: c?.name || '' }), 3500); setTimeout(() => { A.closeSheet(); A.render(); }, 300); return 'default'; },
   sgOther: () => { const r = saveSent(null, 'menu'); r.sentLog = []; S(); A.closeSheet(); A.openShare(r); },
   mTplRefresh: (a) => { const n = refreshTemplates(true, a.dataset.id); A.render(); A.toast(n ? t('Route ververst') : t('Niet gelukt – is MARAD ontgrendeld?')); },

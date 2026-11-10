@@ -109,7 +109,7 @@ export function parseMarad(rows) {
       // draaiuren-taken: "Due at" = stand waarop hij vervalt, "Due in" = resterende uren, Date/RU = laatste stand
       dueRunHours: hrs ? num(row[col.dueAt]) : null,
       dueIn: hrs ? null : num(row[col.dueIn]), dueInHours: hrs ? num(row[col.dueIn]) : null, postponedUntil: parseDate(row[col.postponedUntil]),
-      rank: clean(row[col.rank]).split(',').map(clean).filter(Boolean),
+      rank: normR(clean(row[col.rank]).split(',').map(clean).filter(Boolean)),
       taskType: clean(row[col.taskType]), costCode: clean(row[col.costCode]), duration: num(row[col.duration]),
       lastDone: ruDate, lastRunHours: hrs ? num(ru) : null, lastWeek: num(row[col.lastWeek]), daysAgo: num(row[col.daysAgo]),
       workCard: '', notes: [],
@@ -182,18 +182,22 @@ export const dueInDays = (task, today = todayISO()) => (task.dueDate ? daysBetwe
  *  - locatiekoppeling die de gebruiker zelf koos blijft staan
  *  - afmelding in de app die nieuwer is dan de laatste uitvoering volgens MARAD blijft leidend
  *  Geeft { maint, added, updated, unchanged } */
+// Alias: 'Junior Officer' heet in de app '2nd Officer' (dubbele tags tellen één keer).
+const normR = (xs) => [...new Set((xs || []).map((r) => (/^junior officer$/i.test(String(r).trim()) ? '2nd Officer' : r)))];
 export function mergeMarad(maint, parsed, opts = {}) {
   const m = maint || { ship: '', tasks: [], components: {}, signoffs: [] };
   m.tasks ||= []; m.components ||= {}; m.signoffs ||= [];
   if (parsed.ship) m.ship = parsed.ship;
-  if (parsed.fixedRounds) m.fixedRounds = parsed.fixedRounds;
+  for (const x of m.tasks) if (Array.isArray(x.rank)) x.rank = normR(x.rank);
+  if (parsed.fixedRounds) m.fixedRounds = parsed.fixedRounds.map((d) => (Array.isArray(d.ranks) ? { ...d, ranks: normR(d.ranks) } : d));
   if (parsed.oil) m.oilRef = parsed.oil; // olie-stamdata (alleen uit de versleutelde bundel); voorraad/historie staat in m.oil
   if (parsed.bundleRev) m.bundleRev = parsed.bundleRev; // vaste rondes (alleen uit de versleutelde bundel)
   Object.assign(m.components, parsed.components);
   const byId = new Map(m.tasks.map((x) => [x.id, x]));
   let added = 0, updated = 0, unchanged = 0;
   const now = opts.now || new Date().toISOString();
-  for (const nt of parsed.tasks) {
+  for (const nt0 of parsed.tasks) {
+    const nt = Array.isArray(nt0.rank) ? { ...nt0, rank: normR(nt0.rank) } : nt0;
     const cur = byId.get(nt.id);
     if (!cur) {
       const x = { ...nt, locId: opts.autoLoc ? opts.autoLoc(nt, parsed.components[nt.componentId]) : null, locManual: false, doneLog: [], importedAt: now, updatedAt: now };

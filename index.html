@@ -14,8 +14,29 @@
   <link rel="icon" href="icons/icon-192.png" type="image/png">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="stylesheet" href="css/app.css">
+  <script>
+    // Opstartscherm: niet bij een gedeelde link (#route=/#report=), niet tijdens een lopende ronde en maar één keer per sessie.
+    (function () { try {
+      var d = document.documentElement, s = localStorage.getItem('schiproute.v1') || '';
+      if ((self.__SRTEST && self.__SRTEST.noSplash) || /(route|report)=/.test(location.hash) || /"activeRun":\{/.test(s) || sessionStorage.getItem('sr.splashed')) return;
+      d.classList.add('splash'); if (localStorage.getItem('schiproute.splashSeen')) d.classList.add('splash-quick');
+    } catch (e) { /* */ } })();
+  </script>
 </head>
 <body>
+  <div id="splash" aria-hidden="true">
+    <svg class="sp-ship" viewBox="0 0 320 120" fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <path pathLength="1" d="M18 76 L23 96 L284 96 Q299 92 305 69" />
+      <path pathLength="1" d="M18 76 L291 76 L305 69" />
+      <path pathLength="1" d="M27 76 V58 H63 V76" />
+      <path pathLength="1" d="M31 58 V41 H59 V58 M35 48 H55 M45 41 V31" />
+      <path pathLength="1" d="M76 76 V68 H266 V76 M123 68 V76 M171 68 V76 M219 68 V76" />
+      <path pathLength="1" d="M278 76 V71 H297 M291 71 V59" />
+      <path pathLength="1" class="sea" d="M6 105 H314" />
+    </svg>
+    <div class="sp-title">Schip Route</div>
+    <div class="sp-sub">Amadeus Aquamarijn</div>
+  </div>
   <main id="main" aria-live="polite"><p class="loading">Laden…</p></main>
   <nav id="nav">
     <button data-tab="vandaag"><span>🏠</span>Vandaag</button>

@@ -5,8 +5,10 @@ import { initOil } from './oil.js';
 import { initMaint } from './maint.js';
 import { shipSVG, svgPointToLoc, VIEWS } from './shipmap.js';
 import { t, tx, setTx, getLang, setLang, LANGS, LOCALES } from './i18n.js';
+import { RANK_IDS, RANK_ICON, normRank, rankLabel } from './ranks.js';
 
-const APP_VERSION = '1.8.0';
+const APP_VERSION = '1.9.0';
+const TEST = self.__SRTEST || {}; // alleen tests: { noSplash, noProfile }
 const OB = self.OutboxCore;
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -18,6 +20,8 @@ const plural = (n, a, b) => `${n} ${n === 1 ? a : b}`;
 // Modus: 'beheer' (manager: alles) of 'bemanning' (crew: ontvangen routes, ronde, vragen, observaties, outbox).
 const isCrew = () => state.settings.mode === 'bemanning';
 const CREW_TABS = ['routes', 'meer'];
+const myRank = () => normRank(state.settings.myRank) || 'Engineer';
+const needsProfile = () => !String(state.settings.userName || '').trim();
 const BEHEER_TABS = ['vandaag', 'onderhoud', 'olie', 'routes', 'meldingen'];
 
 let view = { tab: '', mel: 'msgs', routeId: null, runId: null, mapMode: 'side', mapRoute: '', placing: null, hist: 'runs' };
@@ -98,13 +102,14 @@ function render() {
   if (isCrew()) view.routeId = null;
   document.body.classList.toggle('crew', isCrew());
   $$('#nav button').forEach((b) => { b.classList.toggle('on', b.dataset.tab === view.tab); b.hidden = isCrew() || !BEHEER_TABS.includes(b.dataset.tab); });
+  if (view.tab === 'rangen') $$('#nav button').forEach((b) => b.classList.toggle('on', b.dataset.tab === 'vandaag'));
   const NAVL = { olie: t('Olie'), vandaag: t('Vandaag'), meldingen: t('Meldingen'), routes: isCrew() ? t('Mijn routes') : t('Rondes'), onderhoud: t('Onderhoud'), kaart: t('Kaart'), locaties: t('Locaties'), historie: t('Historie'), meer: t('Meer') };
   $$('#nav button').forEach((b) => { b.lastChild.textContent = NAVL[b.dataset.tab]; });
   const nb = $('#nav button[data-tab=meldingen]'); const un = isCrew() ? 0 : unseenCount() + unseenMsgs();
   let bd = nb.querySelector('.nbadge'); if (!bd) { bd = document.createElement('b'); bd.className = 'nbadge'; nb.prepend(bd); }
   bd.textContent = un > 99 ? '99+' : un; bd.hidden = !un; nb.setAttribute('aria-label', NAVL.meldingen + (un ? ' – ' + t('{n} ongelezen', { n: un }) : ''));
   const fn = {
-    vandaag: viewToday, meldingen: viewMeldingen, olie: () => OIL.view(),
+    vandaag: viewToday, meldingen: viewMeldingen, olie: () => OIL.view(), rangen: viewRanks,
     routes: isCrew() ? viewCrewRoutes : view.routeId ? viewRoute : viewRoutes,
     onderhoud: MT.view,
     kaart: viewMap, locaties: viewLocations,
@@ -122,7 +127,7 @@ function installBanner() {
   if (isIOS()) return `<div class="banner ios"><b>${t('📲 Zet de app op je beginscherm (iPhone)')}</b><p>${iosOtherBrowser() ? t('Open deze pagina in <b>Safari</b>, tik op <b>Deel</b> ⬆️ en kies <b>Zet op beginscherm</b>.') : t('Tik in Safari op <b>Deel</b> ⬆️ en dan <b>Zet op beginscherm</b>.')}</p><div class="row"><button class="btn primary" data-act="iosInstall">${t('Stap voor stap')}</button><button class="btn ghost" data-act="hideInstall">${t('Verbergen')}</button></div></div>`;
   return `<div class="banner"><b>${t('Zet de app op je beginscherm')}</b><p>${deferredInstall ? t('Dan start hij schermvullend en werkt hij offline.') : t('Open het browsermenu ⋮ en kies <b>App installeren</b> / <b>Toevoegen aan startscherm</b>.')}</p><div class="row">${deferredInstall ? `<button class="btn primary" data-act="install">${t('Installeren')}</button>` : ''}<button class="btn ghost" data-act="hideInstall">${t('Verbergen')}</button></div></div>`;
 }
-function iosInstallSheet() {
+function iosInstallSheet(next = null) {
   openSheet(`<h2>${t('📲 Installeren op iPhone')}</h2>
     ${iosOtherBrowser() ? `<p class="warnbox">${t('Je gebruikt een andere browser dan Safari. Dat kan ook (iOS 16.4+), maar Safari werkt het best: kopieer het adres en open het in Safari.')}</p>` : ''}
     <ol class="iossteps">
@@ -132,7 +137,9 @@ function iosInstallSheet() {
       <li><span class="ico">🚢</span><div><b>${t('Open de app vanaf het beginscherm')}</b><small>${t('Dan start hij schermvullend en werkt hij offline. Gebruik vanaf nu altijd dit icoon.')}</small></div></li>
     </ol>
     <p class="infobox">${t('ℹ️ Belangrijk op iPhone: de app op het beginscherm heeft een eigen opslag, los van Safari. Een route-link uit WhatsApp opent in Safari: kopieer hem daar met "📋 Kopieer route" en plak hem in de app met "📋 Route plakken".')}</p>
-    <button class="btn primary big" data-act="closeSheet">${t('Begrepen')}</button>`, { iosInstall: true });
+    ${needsProfile() ? `<p class="warnbox">${t('👤 Maak je profiel (naam en rang) het liefst in de app vanaf je beginscherm: Safari en de app bewaren hun gegevens apart.')}</p>` : ''}
+    <button class="btn primary big" data-act="closeSheet">${t('Begrepen')}</button>
+    ${next ? `<button class="btn ghost" data-act="iosContinue">${t('Ga verder in Safari')}</button>` : ''}`, { iosInstall: true, next });
 }
 
 // ---------- Vandaag (startscherm Beheer) ----------
@@ -142,12 +149,13 @@ function resumeCard() {
 }
 function viewToday() {
   const d = new Date().toLocaleDateString(LOCALES[getLang()], { weekday: 'long', day: 'numeric', month: 'long' });
-  let h = header(t('Vandaag')) + `<p class="shipsub">📅 ${esc(d)} · 🚢 ${esc(state.shipName)}</p>`;
+  let h = header(t('Vandaag')) + greetHTML() + `<p class="shipsub">📅 ${esc(d)} · 🚢 ${esc(state.shipName)}</p>`;
   h += resumeCard() + installBanner();
   const un = unseenMsgs() + unseenCount();
   if (un) h += `<button class="card tap melbanner" data-act="goTab" data-v="meldingen">🔔 <b>${t('{n} ongelezen meldingen', { n: un })}</b><small>${t('vragen, observaties, Niet OK en aftekeningen')}</small></button>`;
   if (!state.maint?.tasks) h += `<section class="card"><h3>🔐 ${t('Onderhoud ontgrendelen')}</h3><p class="muted small">${t('Ontgrendel de MARAD-gegevens om de vaste rondes en te-late taken te zien.')}</p><button class="btn primary big" data-act="mUnlockSheet">${t('🔓 Ontgrendelen')}</button></section>`;
   else h += MT.todayHTML() + `<div class="row"><button class="btn" data-act="mWeekGo">${t('📅 Weekoverzicht')}</button><button class="btn" data-act="goSug">${t('💡 Alle vaste rondes')}</button></div>`;
+  h += `<button class="card tap rankbanner" data-act="goRanks">🎖 <b>${t('Rangen')}</b><small>${t('Pagina per rang: vaste rondes klaarzetten en delen')}</small></button>`;
   const rs = state.routes.filter((r) => !r.templateId).slice(0, 5);
   if (rs.length) h += `<h3 class="sec">🧭 ${t('Eigen rondes')}</h3><div class="list compact">${rs.map((r) => `<article class="card route mini"><div class="tap" data-act="openRoute" data-id="${r.id}"><b>${esc(tx(r, 'name'))}</b><small>${plural(r.steps.length, t('taak'), t('taken'))}</small></div><button class="btn ok" data-act="startRun" data-id="${r.id}" ${r.steps.length ? '' : 'disabled'}>▶</button></article>`).join('')}</div><button class="btn small ghost" data-act="goTab" data-v="routes">${t('Alle rondes →')}</button>`;
   return h;
@@ -158,6 +166,7 @@ function appMenu() {
     ${it('mWeekGo', '', '📅', t('Weekoverzicht'))}${it('goMaradDone', '', '⬇', t('Afgemeld voor MARAD (CSV)'))}
     ${it('goTab', 'kaart', '🚢', t('Kaart'))}${it('goTab', 'locaties', '📍', t('Locaties'))}
     ${it('goTab', 'historie', '📋', t('Historie (eigen rondes)'))}${it('newObs', '', '👁', t('Eigen observatie'))}
+    ${it('goRanks', '', '🎖', t('Rangen'))}${it('profileEdit', '', '👤', t('Profiel'))}
     ${it('openOutbox', '', '📤', t('Outbox'))}${it('langMenu', '', '🌐', t('Taal · Language · Bahasa'))}
     ${it('goTab', 'meer', '⚙️', t('Instellingen, personen, PIN, modus'))}${state.maint ? it('mLock', '', '🔒', t('Vergrendelen')) : it('mUnlockSheet', '', '🔓', t('Ontgrendelen'))}
   </div><p class="muted small">${t('Versie')} ${APP_VERSION}</p>`, { menu: true });
@@ -429,8 +438,7 @@ function viewMore() {
   const tog = (k, label) => `<label class="switch"><input type="checkbox" data-set="${k}" ${st[k] ? 'checked' : ''}><span>${label}</span></label>`;
   h += `<section class="card"><h2>${t('Instellingen')}</h2>
     <label>${t('Schip')}<input data-ship value="${esc(state.shipName)}"></label>
-    <label>${t('Mijn naam (in rapporten en meldingen)')}<input data-set-text="userName" value="${esc(st.userName || '')}" placeholder="${t('Bijv. Hessel')}"></label>
-    <label>${t('Mijn functie (filter in Onderhoud)')}<select data-set-sel="myRank">${[...new Set([st.myRank || 'Engineer', ...MT.rankNames()])].map((r) => `<option ${r === (st.myRank || 'Engineer') ? 'selected' : ''}>${esc(r)}</option>`).join('')}</select></label>
+    ${profileRow()}
     <label>${t('Mijn telefoon (WhatsApp) – bemanning stuurt rapporten hierheen')}<input type="tel" data-set-text="userPhone" value="${esc(st.userPhone || '')}" placeholder="+31 6…"></label>
     <label>${t('Thema')}<select data-set-sel="theme"><option value="auto" ${st.theme === 'auto' ? 'selected' : ''}>${t('Automatisch')}</option><option value="light" ${st.theme === 'light' ? 'selected' : ''}>${t('Licht (hoog contrast)')}</option><option value="dark" ${st.theme === 'dark' ? 'selected' : ''}>${t('Donker')}</option></select></label>
     ${tog('bigText', t('Extra grote tekst'))}${tog('vibrate', t('Trillen bij volgende stap'))}${tog('speak', t('Instructie uitspreken (spraak)'))}${tog('wakeLock', t('Scherm aan houden tijdens ronde'))}${fsToggle(tog)}${tog('resumeOnStart', t('Lopende ronde direct openen bij starten app'))}</section>`;
@@ -798,8 +806,17 @@ function renderRunDone() {
 const actions = {
   edLang: (a) => { editLang = a.dataset.v; $('#edBody').innerHTML = taskEditorHTML(); },
   langMenu: () => openSheet(`<h2>${t('🌐 Taal · Language · Bahasa')}</h2><div class="stack">${Object.entries(LANGS).map(([k, v]) => `<button class="btn big ${k === getLang() ? 'primary' : ''}" data-act="setLang" data-v="${k}">${v.flag} ${v.name}</button>`).join('')}</div>`),
+  goRanks: () => { closeSheet(); view.rank = null; go('rangen', { rank: null }); },
+  rankOpen: (a) => go('rangen', { rank: a.dataset.v }),
+  rankShareRoute: (a) => { const r = route(a.dataset.id); if (!r) return; r.intendedRank = a.dataset.rank; save(); openShare(r); },
+  profileEdit: () => { closeSheet(); openProfile({ first: false }); },
+  pfLang: (a) => { const L = a.dataset.v; if (PF) PF.name = $('#pfName')?.value ?? PF.name; state.settings.lang = L; save(); setLang(L); renderProfile(); render(); },
+  pfRank: (a) => { if (PF) { PF.name = $('#pfName')?.value ?? PF.name; PF.rank = a.dataset.v; } $$('#profile .rankcard').forEach((b) => { const on = b === a; b.classList.toggle('on', on); b.setAttribute('aria-checked', on); }); const e = $('#pfErr'); if (e) e.hidden = true; },
+  pfSave: () => saveProfile(),
+  pfCancel: () => { closeProfile(); PF = null; },
+  iosContinue: () => { const nx = sheetCtx?.next; closeSheet(); nx?.(); },
   setLang: (a) => { const L = a.dataset.v; if (L === getLang()) return closeSheet(); state.settings.lang = L; save(); setLang(L); location.reload(); },
-  closeSheet, back: () => go(view.tab),
+  closeSheet, back: () => (view.tab === 'rangen' ? (view.rank ? go('rangen', { rank: null }) : go('vandaag')) : go(view.tab)),
   install: async () => { if (!deferredInstall) return; deferredInstall.prompt(); await deferredInstall.userChoice; deferredInstall = null; render(); },
   hideInstall: () => { state.settings.hideInstall = true; save(); render(); },
   showInstall: () => { state.settings.hideInstall = false; save(); go('routes'); },
@@ -850,7 +867,8 @@ const actions = {
   doImport: (a) => {
     const pkg = sheetCtx.pkg;
     if (pkg.notify?.topic && $('#adoptTopic')?.checked) { state.settings.ntfyTopic = pkg.notify.topic; state.settings.ntfyServer = pkg.notify.server || 'https://ntfy.sh'; state.settings.ntfyTopicAuto = false; save(); }
-    const r = importPackage(pkg, !!a.dataset.copy); closeSheet(); toast(t('Route geïmporteerd ✔')); go('routes', isCrew() ? {} : { routeId: r.id }); },
+    const r = importPackage(pkg, !!a.dataset.copy); closeSheet(); toast(t('Route geïmporteerd ✔')); go('routes', isCrew() ? {} : { routeId: r.id });
+    if (isCrew() && needsProfile() && !TEST.noProfile) openProfile({ first: true }); },
   importFile: () => $('#fileImport').click(),
   startRun: (a) => startRun(a.dataset.id),
   resumeRun: () => openRun(),
@@ -1203,7 +1221,7 @@ Object.assign(actions, {
       const ar = state.activeRun; const s = ar.route.steps[ar.idx]; const vals = (ar.values[s.id] ??= {});
       for (const f of s.fields || []) { if (f.role === 'mDone') vals[f.id] = false; if (f.role === 'mRem') vals[f.id] = c.text; }
       const notify = $('#cNotify')?.checked;
-      if (notify && !state.settings.userName && isCrew()) { const n = prompt(t('Wat is je naam? (komt in de melding)')); if (n?.trim()) { state.settings.userName = n.trim(); save(); } }
+      if (notify && needsProfile() && isCrew() && askProfile(() => actions.cSend())) return;
       const item = notify ? buildItem(c) : null;
       (ar.messages ??= []).push({ id: item?.id || 'n-' + rid(), kind: 'nietok', text: c.text, locName: tx(curLoc(ar, s), 'name'), taskTitle: s.title, urgent: false, at: new Date().toISOString(), photos: c.photos.length, sent: !!item });
       save(); closeSheet(); recordStep('problem', c.text);
@@ -1212,7 +1230,7 @@ Object.assign(actions, {
     }
     if (!c.text && !c.photos.length) return toast(c.kind === 'vraag' ? t('Typ eerst je vraag') : t('Beschrijf wat je zag'));
     if ($('#cLoc')) c.locId = $('#cLoc').value;
-    if (!state.settings.userName) { const n = prompt(t('Wat is je naam? (komt in de melding)')); if (n?.trim()) { state.settings.userName = n.trim(); save(); } }
+    if (needsProfile() && askProfile(() => actions.cSend())) return;
     const item = buildItem(c);
     if (c.inRun) (state.activeRun.messages ??= []).push({ id: item.id, kind: c.kind, text: c.text, locName: item.locName, urgent: c.urgent, at: item.createdAt, photos: c.photos.length });
     else (state.observations ??= []).push({ id: item.id, kind: c.kind, text: c.text, locName: item.locName, urgent: c.urgent, at: item.createdAt, photos: c.photos.length });
@@ -1282,18 +1300,31 @@ Object.assign(actions, {
 });
 
 // ---------- bemanning-weergaven ----------
-function viewCrewRoutes() {
-  const ar = state.activeRun;
-  let h = header(t('Mijn routes')) + `<p class="shipsub">🚢 ${esc(state.shipName)}${state.settings.userName ? ` · 👤 ${esc(state.settings.userName)}` : ''}</p>`;
-  h += resumeCard() + installBanner() + `<div class="list">`;
-  const recv = state.routes.filter((r) => r.importedAt); // alleen ontvangen routes (geen demo's)
-  if (!recv.length) h += `<p class="empty">${t('Nog geen routes ontvangen. Open de link die je (bijv. via WhatsApp) kreeg, of importeer het routebestand.')}</p>`;
-  for (const r of [...recv].reverse()) {
-    const nLoc = new Set(r.steps.map((s) => s.locationId)).size;
-    h += `<article class="card route"><div class="tap" data-act="openRoute" data-id="${r.id}"><h2>${esc(tx(r, 'name'))}</h2><p>${plural(r.steps.length, t('taak'), t('taken'))} · ${plural(nLoc, t('locatie'), t('locaties'))}${r.from ? ` · ${t('van {name}', { name: `<b>${esc(r.from)}</b>` })}` : ''}</p>${r.description ? `<p class="muted">${esc(tx(r, 'description'))}</p>` : ''}</div>
+function crewRouteCard(r, rank) {
+  const nLoc = new Set(r.steps.map((s) => s.locationId)).size;
+  const mine = r.intendedRank && normRank(r.intendedRank) === rank;
+  return `<article class="card route ${mine ? 'forme' : ''}"><div class="tap" data-act="openRoute" data-id="${r.id}">${mine ? `<span class="tag forme">⭐ ${t('Voor jou')} · ${esc(rankLabel(rank))}</span>` : r.intendedRank ? `<span class="tag">🎖 ${t('voor {rank}', { rank: esc(rankLabel(r.intendedRank)) })}</span>` : ''}<h2>${esc(tx(r, 'name'))}</h2><p>${plural(r.steps.length, t('taak'), t('taken'))} · ${plural(nLoc, t('locatie'), t('locaties'))}${r.from ? ` · ${t('van {name}', { name: `<b>${esc(r.from)}</b>` })}` : ''}</p>${r.description ? `<p class="muted">${esc(tx(r, 'description'))}</p>` : ''}</div>
       <div class="stack"><button class="btn ok big" data-act="startRun" data-id="${r.id}" ${r.steps.length ? '' : 'disabled'}>${t('▶ Start ronde')}</button></div></article>`;
-  }
-  h += `</div>` + OIL.crewCard() + `<div class="row crewimp"><button class="btn small ghost" data-act="pasteRoute">${t('📋 Route plakken')}</button><button class="btn small ghost" data-act="importFile">${t('📥 Route-bestand')}</button></div>`;
+}
+// Bemanning: kale startpagina per rang (begroeting, ontvangen rondes, evt. vaste rondes, olie-knoppen).
+function viewCrewRoutes() {
+  const rank = myRank(), name = String(state.settings.userName || '').trim(), trainee = rank === 'Stagiair';
+  let h = header(name ? t('Hallo {name}', { name }) : t('Mijn routes'));
+  h += `<p class="shipsub rankline">${name ? `<span class="rankchip">${RANK_ICON[rank] || '👤'} ${esc(rankLabel(rank))}</span> ` : ''}🚢 ${esc(state.shipName)}</p>`;
+  h += resumeCard() + installBanner();
+  // alleen ontvangen routes (geen demo's); voor mijn rang bovenaan, voor andere rangen ingeklapt
+  const recv = [...state.routes.filter((r) => r.importedAt)].reverse();
+  const forMe = recv.filter((r) => !r.intendedRank || normRank(r.intendedRank) === rank).sort((a, b) => (normRank(b.intendedRank) === rank) - (normRank(a.intendedRank) === rank));
+  const other = recv.filter((r) => !forMe.includes(r));
+  h += `<div class="list">`;
+  if (!forMe.length) h += `<div class="emptystate"><p class="big">📭</p><p><b>${t('Nog geen ronde ontvangen.')}</b></p><p class="muted">${t('Open de link die je via WhatsApp krijgt.')}</p></div>`;
+  h += forMe.map((r) => crewRouteCard(r, rank)).join('') + `</div>`;
+  if (trainee) h += `<p class="infobox">🎓 ${t('Je begeleider stuurt je een ronde via WhatsApp. Open die link; de ronde verschijnt dan hier.')}</p>`;
+  if (other.length) h += `<details class="card otherranks"><summary>${t('Voor andere rangen ({n})', { n: other.length })}</summary><div class="list">${other.map((r) => crewRouteCard(r, rank)).join('')}</div></details>`;
+  // vaste rondes alleen als Beheer op dít toestel ontgrendeld is (anders heeft de bemanning geen MARAD-gegevens)
+  if (!trainee && state.maint?.tasks) h += `<h3 class="sec">📌 ${t('Mijn vaste rondes')}</h3>` + MT.rankRoundsHTML(rank, { crew: true });
+  if (!trainee) h += OIL.crewCard();
+  h += `<div class="row crewimp"><button class="btn small ghost" data-act="pasteRoute">${t('📋 Route plakken')}</button><button class="btn small ghost" data-act="importFile">${t('📥 Route-bestand')}</button></div>`;
   return h;
 }
 function crewRunsHTML() {
@@ -1304,12 +1335,81 @@ function crewRouteSheet(r) {
   if (!r) return;
   openSheet(`<h2>${esc(tx(r, 'name'))}</h2>${r.description ? `<p class="muted">${esc(tx(r, 'description'))}</p>` : ''}<ol class="plain">${r.steps.map((s) => `<li><b>${esc(tx(s, 'title'))}</b><br><small>📍 ${esc(tx(loc(s.locationId), 'name') || '?')}</small></li>`).join('')}</ol><div class="stack"><button class="btn ok big" data-act="startRun" data-id="${r.id}">${t('▶ Start ronde')}</button><button class="btn danger small" data-act="crewDelRoute" data-id="${r.id}">${t('Route verwijderen van dit toestel')}</button></div>`);
 }
+// ---------- profiel (naam + rang) ----------
+function greetHTML() {
+  const name = String(state.settings.userName || '').trim(); if (!name) return '';
+  const r = myRank();
+  return `<p class="greet">👋 ${t('Hallo {name}', { name: esc(name) })} <span class="rankchip">${RANK_ICON[r] || '👤'} ${esc(rankLabel(r))}</span></p>`;
+}
+function profileRow() {
+  const name = String(state.settings.userName || '').trim(), r = myRank();
+  return `<div class="profrow"><span class="pfava">${RANK_ICON[r] || '👤'}</span><span><b>${esc(name || t('Nog geen naam'))}</b><small>${esc(rankLabel(r))}</small></span><button class="btn small" data-act="profileEdit">${t('Profiel wijzigen')}</button></div>`;
+}
+let PF = null; // profiel in bewerking: { name, rank, first, then }
+function openProfile(opts = {}) {
+  PF = { name: String(state.settings.userName || ''), rank: state.settings.myRank ? normRank(state.settings.myRank) : '', first: needsProfile(), then: null, ...opts };
+  renderProfile(); setTimeout(() => { const i = $('#pfName'); if (i && !i.value) i.focus({ preventScroll: true }); }, 50);
+}
+/** Naam ontbreekt → profielscherm tonen en daarna `then` uitvoeren. Geeft true als het scherm open is gegaan. */
+function askProfile(then) { if (!needsProfile() || TEST.noProfile) return false; openProfile({ first: true, then }); return true; }
+function renderProfile() {
+  let el = $('#profile');
+  if (!el) { el = document.createElement('section'); el.id = 'profile'; el.setAttribute('role', 'dialog'); el.setAttribute('aria-modal', 'true'); document.body.append(el); el.addEventListener('input', (e) => { if (e.target.id === 'pfName' && PF) PF.name = e.target.value; }); }
+  const sub = (r) => { const en = r === 'Stagiair' ? 'Trainee' : r; return en !== rankLabel(r) ? `<small>${esc(en)}</small>` : ''; };
+  el.innerHTML = `<div class="pf-langs" role="group" aria-label="Taal · Language · Bahasa">${Object.entries(LANGS).map(([k, v]) => `<button class="${k === getLang() ? 'on' : ''}" data-act="pfLang" data-v="${k}" lang="${k}"><span>${v.flag}</span>${esc(v.name)}</button>`).join('')}</div>
+    <div class="pf-body"><h1>${PF.first ? t('Welkom aan boord') : t('Profiel')}</h1><p class="muted">${t('Vul je naam in en tik op je rang.')}</p>
+    ${isIOS() && !isStandalone() ? `<p class="warnbox small">${t('Je zit in Safari. Safari en de app op je beginscherm bewaren hun gegevens apart: maak je profiel het liefst in de app vanaf je beginscherm.')}</p>` : ''}
+    <label class="pf-name">${t('Je naam')}<input id="pfName" value="${esc(PF.name)}" autocomplete="given-name" autocapitalize="words" enterkeyhint="done" maxlength="40" placeholder="${t('Je voornaam')}"></label>
+    <div class="pf-lbl">${t('Je rang')}</div>
+    <div class="rankgrid" role="radiogroup" aria-label="${t('Je rang')}">${RANK_IDS.map((r) => `<button class="rankcard ${PF.rank === r ? 'on' : ''}" role="radio" aria-checked="${PF.rank === r}" data-act="pfRank" data-v="${esc(r)}"><span class="ri">${RANK_ICON[r]}</span><b>${esc(rankLabel(r))}</b>${sub(r)}</button>`).join('')}</div>
+    <p class="pf-err" id="pfErr" role="alert" hidden></p>
+    <div class="pf-actions">${PF.first ? '' : `<button class="btn ghost big" data-act="pfCancel">${t('Annuleren')}</button>`}<button class="btn primary huge" data-act="pfSave">${PF.first ? t('Klaar – aan de slag') : t('Opslaan')}</button></div></div>`;
+  el.hidden = false; document.body.classList.add('profiling');
+}
+function closeProfile() { const el = $('#profile'); if (el) { el.hidden = true; el.innerHTML = ''; } document.body.classList.remove('profiling'); }
+function pfErr(msg, focus) { const e = $('#pfErr'); e.textContent = msg; e.hidden = false; if (focus) $(focus)?.focus(); if (navigator.vibrate) navigator.vibrate(40); }
+function saveProfile() {
+  const name = String($('#pfName')?.value ?? PF.name).trim().replace(/\s+/g, ' ');
+  if (!name) return pfErr(t('Vul je naam in.'), '#pfName');
+  if (!PF.rank) return pfErr(t('Tik op je rang.'));
+  const st = state.settings, first = PF.first, then = PF.then, rank = PF.rank;
+  st.userName = name; st.myRank = rank; st.profileDone = true;
+  st.rankSel = state.maint?.tasks?.some((x) => x.rank.includes(rank)) ? [rank] : [];
+  // Nieuw toestel zonder MARAD-gegevens: wie geen Engineer is, start in Bemanning (Beheer blijft bereikbaar via Meer → Modus).
+  if (first && !state.maint?.tasks && !state.runs.length && rank !== 'Engineer' && !/(report)=/.test(location.hash)) st.mode = 'bemanning';
+  save(); closeProfile(); PF = null;
+  if (then) { render(); return then(); }
+  if (first) { go(isCrew() ? 'routes' : 'vandaag'); toast(t('Welkom, {name}!', { name })); } else { render(); toast(t('Profiel opgeslagen')); }
+}
+// ---------- Rangen (Beheer) ----------
+function viewRanks() {
+  if (view.rank) return viewRankPage(view.rank);
+  let h = header(t('Rangen'), true) + `<p class="muted">${t('Tik op een rang om zijn pagina te openen: vaste rondes klaarzetten en met één tik via WhatsApp sturen.')}</p>`;
+  const ov = MT.rankOverview();
+  if (ov[0].rounds == null) h += `<section class="card"><p class="muted small">${t('Ontgrendel de MARAD-gegevens om per rang de vaste rondes en te-late taken te zien.')}</p><button class="btn primary" data-act="mUnlockSheet">${t('🔓 Ontgrendelen')}</button></section>`;
+  h += `<div class="rankgrid ov">${ov.map((o) => `<button class="rankcard ov ${o.rank === myRank() ? 'me' : ''}" data-act="rankOpen" data-v="${esc(o.rank)}"><span class="ri">${RANK_ICON[o.rank]}</span><b>${esc(rankLabel(o.rank))}</b>
+    <small>${o.rank === 'Stagiair' ? t('geen eigen taken · ronde geven') : o.rounds == null ? '—' : plural(o.rounds, t('vaste ronde'), t('vaste rondes'))}</small>${o.overdue ? `<span class="tag red">${t('{n} te laat', { n: o.overdue })}</span>` : ''}</button>`).join('')}</div>`;
+  return h;
+}
+function viewRankPage(rank) {
+  const ov = MT.rankOverview().find((o) => o.rank === rank) || { rounds: null, tasks: 0, overdue: 0 };
+  let h = header(`${RANK_ICON[rank] || ''} ${rankLabel(rank)}`, true);
+  h += `<p class="shipsub">${rank === 'Stagiair' ? t('Stagiairs hebben geen eigen MARAD-taken.') : ov.rounds == null ? '' : t('{a} taken · {b} te laat · {c} vaste rondes', { a: ov.tasks, b: ov.overdue, c: ov.rounds })}</p>`;
+  if (rank === '2nd Officer') h += `<p class="muted small">ℹ️ ${t('Taken met de MARAD-functie "Junior Officer" horen hier ook bij.')}</p>`;
+  if (rank === 'Stagiair') h += `<p class="infobox">🎓 ${t('Geef een stagiair een ronde: kies hieronder een vaste ronde of een eigen ronde en stuur hem via WhatsApp. Op het toestel van de stagiair staat hij dan bovenaan.')}</p>`;
+  if (!state.maint?.tasks) h += `<section class="card"><button class="btn primary" data-act="mUnlockSheet">${t('🔓 Ontgrendelen')}</button></section>`;
+  else h += `<h3 class="sec">📌 ${t('Vaste rondes')}</h3>` + MT.rankRoundsHTML(rank);
+  const own = state.routes.filter((r) => !r.templateId && !r.importedAt && r.steps.length);
+  if (own.length) h += `<h3 class="sec">🧭 ${t('Eigen rondes')}</h3><div class="list compact">${own.map((r) => `<article class="card route mini"><div><b>${esc(tx(r, 'name'))}</b><small>${plural(r.steps.length, t('taak'), t('taken'))}${normRank(r.intendedRank) === rank ? ' · ⭐' : ''}</small></div><button class="btn small wa" data-act="rankShareRoute" data-id="${r.id}" data-rank="${esc(rank)}">${t('📲 Delen')}</button></article>`).join('')}</div>`;
+  return h;
+}
+
 function viewCrewMore() {
   const st = state.settings;
   const tog = (k, label) => `<label class="switch"><input type="checkbox" data-set="${k}" ${st[k] ? 'checked' : ''}><span>${label}</span></label>`;
   let h = header(t('Meer'));
   h += `<section class="card"><h2>${t('🌐 Taal · Language · Bahasa')}</h2><div class="seg langseg">${Object.entries(LANGS).map(([k, v]) => `<button class="${k === getLang() ? 'on' : ''}" data-act="setLang" data-v="${k}">${v.flag} ${k.toUpperCase()}</button>`).join('')}</div></section>`;
-  h += `<section class="card"><h2>${t('Instellingen')}</h2><label>${t('Mijn naam (in rapporten en meldingen)')}<input data-set-text="userName" value="${esc(st.userName || '')}"></label>
+  h += `<section class="card"><h2>${t('Instellingen')}</h2>${profileRow()}
     ${tog('bigText', t('Extra grote tekst'))}${tog('vibrate', t('Trillen bij volgende stap'))}${tog('speak', t('Instructie uitspreken (spraak)'))}${tog('wakeLock', t('Scherm aan houden tijdens ronde'))}${fsToggle(tog)}</section>`;
   h += crewRunsHTML();
   h += `<section class="card"><h2>${t('📤 Outbox')}</h2><p class="muted small">${t('Vragen, observaties en rapporten gaan naar kanaal:')} <b>${esc(st.ntfyTopic || '—')}</b></p><div class="row"><button class="btn" data-act="openOutbox">${t('📤 Outbox openen')}</button><button class="btn" data-act="newObs">${t('👁 Extra observatie')}</button></div></section>`;
@@ -1363,7 +1463,7 @@ function reportNtfyText(run, link) {
 async function sendReport(run) {
   const r = route(run.routeId);
   if (!run.by && state.settings.userName) run.by = state.settings.userName;
-  if (!run.by) { const n = prompt(t('Wat is je naam? (komt in de melding)')); if (n?.trim()) { state.settings.userName = n.trim(); run.by = n.trim(); save(); } }
+  if (!run.by && askProfile(() => sendReport(run))) return;
   const pkg = reportPackage(state, run, r);
   const link = await buildShareLink(pkg);
   const json = JSON.stringify(pkg);
@@ -1560,11 +1660,35 @@ if (!isCrew()) MT.ensureMaint().then((m) => { if (m?.tasks && ['routes', 'onderh
 render();
 checkHash();
 // iPhone in Safari (niet vanaf beginscherm): installatie-uitleg automatisch tonen (eenmaal per sessie, niet bij een gedeelde link)
-if (isIOS() && !isStandalone() && !state.settings.hideInstall && !/(route|report)=/.test(location.hash) && !sessionStorage.getItem('iosHint')) { sessionStorage.setItem('iosHint', '1'); setTimeout(() => { if ($('#sheet').hidden) iosInstallSheet(); }, 600); }
+// Opstartscherm (index.html zet html.splash; niet bij een gedeelde link of lopende ronde) → daarna intro:
+// iPhone in Safari: "Zet op beginscherm" (eenmaal per sessie) → profiel als de naam nog ontbreekt.
+let introDone = false;
+function intro() {
+  if (introDone) return; introDone = true;
+  if (/(route|report)=/.test(location.hash) || !$('#run').hidden) return;
+  const next = () => { if (needsProfile() && !TEST.noProfile && $('#run').hidden) openProfile({ first: true }); };
+  if (isIOS() && !isStandalone() && !state.settings.hideInstall && !sessionStorage.getItem('iosHint')) { sessionStorage.setItem('iosHint', '1'); if ($('#sheet').hidden) return iosInstallSheet(next); }
+  next();
+}
+function endSplash() {
+  const html = document.documentElement; clearTimeout(endSplash.tm);
+  if (html.classList.contains('splash')) {
+    try { localStorage.setItem('schiproute.splashSeen', '1'); sessionStorage.setItem('sr.splashed', '1'); } catch { /* */ }
+    const el = $('#splash'); el?.classList.add('out');
+    setTimeout(() => { html.classList.remove('splash', 'splash-quick'); el?.classList.remove('out'); }, 220);
+  }
+  intro();
+}
+if (document.documentElement.classList.contains('splash')) {
+  const quick = document.documentElement.classList.contains('splash-quick');
+  endSplash.tm = setTimeout(endSplash, quick ? 600 : 1200);
+  $('#splash')?.addEventListener('click', endSplash);
+  addEventListener('keydown', function k(e) { if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') { removeEventListener('keydown', k); endSplash(); } });
+} else setTimeout(intro, 600);
 if (!isCrew()) setTimeout(maybePoll, 1500);
 if (state.activeRun && state.settings.resumeOnStart && !location.hash.includes('route=')) { $('#run').hidden = false; document.body.classList.add('running'); renderRun(true); }
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   navigator.serviceWorker.register('./sw.js').then(() => (window.__swRegistered = true)).catch((e) => console.warn('SW', e));
 }
 refreshOutbox().then(() => flushNow());
-window.__app = { state, view: () => view, flushNow, refreshOutbox, MT, pollNtfy, isIOS, isStandalone };
+window.__app = { state, save, view: () => view, flushNow, refreshOutbox, MT, pollNtfy, isIOS, isStandalone, openProfile };
