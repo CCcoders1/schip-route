@@ -7,7 +7,7 @@ import { shipSVG, svgPointToLoc, VIEWS } from './shipmap.js';
 import { t, tx, setTx, getLang, setLang, LANGS, LOCALES } from './i18n.js';
 import { RANK_IDS, RANK_ICON, normRank, rankLabel } from './ranks.js';
 
-const APP_VERSION = '1.9.0';
+const APP_VERSION = '1.9.1';
 const TEST = self.__SRTEST || {}; // alleen tests: { noSplash, noProfile }
 const OB = self.OutboxCore;
 const $ = (s, el = document) => el.querySelector(s);
@@ -811,7 +811,7 @@ const actions = {
   rankShareRoute: (a) => { const r = route(a.dataset.id); if (!r) return; r.intendedRank = a.dataset.rank; save(); openShare(r); },
   profileEdit: () => { closeSheet(); openProfile({ first: false }); },
   pfLang: (a) => { const L = a.dataset.v; if (PF) PF.name = $('#pfName')?.value ?? PF.name; state.settings.lang = L; save(); setLang(L); renderProfile(); render(); },
-  pfRank: (a) => { if (PF) { PF.name = $('#pfName')?.value ?? PF.name; PF.rank = a.dataset.v; } $$('#profile .rankcard').forEach((b) => { const on = b === a; b.classList.toggle('on', on); b.setAttribute('aria-checked', on); }); const e = $('#pfErr'); if (e) e.hidden = true; },
+  pfRank: (a) => { if (PF) { PF.name = $('#pfName')?.value ?? PF.name; PF.rank = a.dataset.v; } $$('#profile .rankcard').forEach((b) => { const on = b === a; b.classList.toggle('on', on); b.setAttribute('aria-checked', on); }); const e = $('#pfErr'); if (e) e.hidden = true; a.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); },
   pfSave: () => saveProfile(),
   pfCancel: () => { closeProfile(); PF = null; },
   iosContinue: () => { const nx = sheetCtx?.next; closeSheet(); nx?.(); },

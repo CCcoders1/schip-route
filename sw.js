@@ -1,6 +1,6 @@
 // Service worker: alles offline beschikbaar (cache-first + achtergrond-update) + Background Sync voor de outbox.
 importScripts('./js/outbox-core.js');
-const VERSION = 'schiproute-v1.9.0';
+const VERSION = 'schiproute-v1.9.1';
 const ASSETS = [
   './', './index.html', './manifest.webmanifest', './css/app.css',
   './js/app.js', './js/outbox-core.js', './js/i18n.js', './js/i18n-dict.js', './js/marad.js', './js/maint.js', './js/oil.js', './js/ranks.js', './js/suggest.js', './vendor/xlsx.mini.min.js', './data/marad.enc.json', './js/store.js', './js/seed.js', './js/planner.js', './js/share.js', './js/shipmap.js',
