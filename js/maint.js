@@ -391,7 +391,7 @@ export function distRoute(items, { name, assignee = '' }) {
   const r = buildRoute(tasks, { name, assignee, strategy: slimDefault(), description: '' }); const extra = new Map();
   for (const i of items.filter((y) => y.step)) {
     const src = A.state.routes.find((x) => x.id === i.routeId)?.steps.find((y) => y.id === i.step); if (!src) continue;
-    const id = A.rid(); r.steps.push({ ...JSON.parse(JSON.stringify(src)), id }); extra.set(id, { st: i.st, dd: i.dd });
+    const id = A.rid(); r.steps.push({ ...JSON.parse(JSON.stringify(src)), id, fromStep: i.step }); extra.set(id, { st: i.st, dd: i.dd });
   }
   r.steps = tacticalOrder(r.steps, extra);
   return r;

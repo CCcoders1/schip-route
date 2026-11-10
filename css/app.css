@@ -527,3 +527,42 @@ html:has(#pairCode, .pday, .pbusy, .pperson, [data-act=pairPaste]) header.top h1
 .wcard.done .wc-ic { background: transparent; border: 2px solid var(--ok); color: var(--ok); font-weight: 800; font-size: 1.1rem; width: 40px; height: 40px; }
 .wcard.done .wc-name { font-weight: 600; color: var(--muted); }
 .wc-ok { font-size: .8rem; font-weight: 700; color: var(--ok); letter-spacing: .02em; }
+/* ---------- v1.15: vóór het versturen – onderwerpen + aantekeningen ---------- */
+.prewho { display: flex; align-items: center; gap: 14px; margin: 6px 0 4px; padding: 14px 16px; background: var(--card); border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--wshadow); }
+.pw-ic { flex: none; width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center; background: var(--sup); font-size: 1.5rem; }
+.pw-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.pw-body b { font-size: 1.2rem; } .pw-body small { color: var(--muted); font-size: .82rem; }
+.psubj { position: relative; display: flex; align-items: stretch; background: var(--card); border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--wshadow); overflow: hidden; }
+.psubj::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 5px; background: var(--line); }
+.psubj.has::before { background: var(--pri); }
+.ps-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 14px; padding: 14px 10px 14px 18px; border: 0; background: none; color: var(--fg); font: inherit; text-align: left; cursor: pointer; }
+.ps-main:active { background: var(--sup); }
+.ps-note { font-size: .9rem; color: var(--fg); font-style: italic; overflow-wrap: anywhere; }
+.ps-note.empty { font-style: normal; color: var(--muted); }
+.ps-drop { flex: none; width: 48px; border: 0; border-left: 1px solid var(--line); background: none; color: var(--muted); font-size: 1rem; cursor: pointer; }
+.prefoot .dprev { text-align: center; margin: 0 0 6px; color: var(--muted); }
+#main:has(.prefoot) { padding-bottom: 200px; }
+.pnote { display: block; margin: 12px 0 4px; padding: 14px 16px; background: var(--card); border: 1px solid var(--line); border-radius: 18px; }
+.pnote .flbl { margin: 0 0 2px; } .pnote textarea { min-height: 96px; } .pnote small { display: block; margin-top: 6px; }
+.ptasks { display: flex; flex-direction: column; gap: 8px; }
+.ptask { position: relative; padding: 12px 14px 12px 18px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; }
+.ptask::before { content: ''; position: absolute; left: 0; top: 10px; bottom: 10px; width: 4px; border-radius: 0 3px 3px 0; background: var(--line); }
+.ptask.st-overdue::before { background: var(--late); } .ptask.has { border-color: var(--pri); }
+.pt-head { display: flex; flex-direction: column; gap: 2px; } .pt-head small { color: var(--muted); font-size: .82rem; }
+.ptask textarea { min-height: 60px; margin-top: 8px; }
+.pt-add { margin-top: 6px; min-height: 40px; padding: 4px 12px; }
+/* aantekeningen bij de bemanning */
+.anote { display: flex; flex-direction: column; gap: 2px; margin: 8px 0; padding: 10px 12px; border-radius: 12px; background: var(--sup); border-left: 4px solid var(--pri); text-align: left; }
+.anote.task { border-left-color: var(--acc); }
+.an-lbl { font-size: .78rem; font-weight: 700; color: var(--muted); letter-spacing: .02em; }
+.an-t { white-space: pre-wrap; overflow-wrap: anywhere; font-size: .98rem; color: var(--fg); }
+.crewrun .anote { font-size: 1.05rem; } .crewrun .anote .an-t { font-size: 1.1rem; }
+.anote-d { margin: 8px 0; padding: 8px 12px; border-radius: 12px; background: var(--sup); }
+.anote-d summary { font-weight: 700; cursor: pointer; } .anote-t { white-space: pre-wrap; margin: 6px 0 2px; }
+.tnote { display: block; font-size: .85rem; color: var(--muted); font-style: italic; }
+p.anote.small { display: block; } p.anote.small .an-lbl { display: block; }
+.present { list-style: none; padding: 0; margin: 8px 0; display: flex; flex-direction: column; gap: 6px; }
+.present li { display: flex; justify-content: space-between; gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; }
+.present small { color: var(--muted); white-space: nowrap; }
+.pcrumb { margin: 2px 0 0; color: var(--muted); font-weight: 600; }
+html:has(.psubj, .ptasks) header.top h1 { font-size: 1.3rem; line-height: 1.2; }

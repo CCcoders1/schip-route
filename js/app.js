@@ -9,7 +9,7 @@ import { shipSVG, svgPointToLoc, VIEWS } from './shipmap.js';
 import { t, tx, setTx, getLang, setLang, LANGS, LOCALES } from './i18n.js';
 import { RANK_IDS, RANK_ICON, normRank, rankLabel } from './ranks.js';
 
-const APP_VERSION = '1.14.0';
+const APP_VERSION = '1.15.0';
 const TEST = self.__SRTEST || {}; // alleen tests: { noSplash, noProfile }
 const OB = self.OutboxCore;
 const $ = (s, el = document) => el.querySelector(s);
@@ -733,6 +733,7 @@ function renderRun(first = false) {
     <div class="run-body crewrun"><p class="rname">${esc(tx(ar.route, 'name'))}</p>
       <p class="bigloc">📍 ${esc(tx(l, 'name'))}</p>
       <h2 class="bigtask">${esc(tx(s, 'title'))}</h2>
+      ${s.note ? noteHTML(s.note, 'task') : ''}${ar.route.note ? `<details class="anote-d" ${i === 0 ? 'open' : ''}><summary>📝 ${t('Aantekening bij deze ronde')}</summary><p class="anote-t">${esc(ar.route.note)}</p></details>` : ''}
       ${s.instruction || s.workCard ? `<details class="instr"><summary>${t('Uitleg')}</summary>${s.instruction ? `<p>${esc(tx(s, 'instruction'))}</p>` : ''}${s.workCard ? `<pre>${esc(s.workCard)}</pre>` : ''}</details>` : ''}
       ${shown.length ? `<div class="fields">${shown.map((f) => fieldInput(f, vals[f.id], isOOR(f, vals[f.id]))).join('')}</div>` : ''}
       <div class="row mininav"><button class="btn small ghost" data-act="runPrev" ${i === 0 ? 'disabled' : ''}>◀ ${t('Vorige')}</button><button class="btn small ghost" data-act="runSkip">↷ ${t('Overslaan')}</button></div>
@@ -748,7 +749,7 @@ function renderRun(first = false) {
       <h2 class="goto">${same ? t('Blijf bij') : t('Loop nu naar')} <span class="locname">${esc(tx(l, 'name'))}</span></h2>
       <p class="deckname">${esc(tx(deck(l.deck), 'name') || l.deckName || '')}</p>
       <div class="run-map" data-act="runMapToggle">${runMap(ar, l)}</div>
-      <div class="task"><p class="tasklbl">${t('en voer de taak uit:')}</p><h3>${esc(tx(s, 'title'))}</h3>${s.instruction ? `<p>${esc(tx(s, 'instruction'))}</p>` : ''}${MT.runExtra(s)}</div>
+      <div class="task"><p class="tasklbl">${t('en voer de taak uit:')}</p><h3>${esc(tx(s, 'title'))}</h3>${s.note ? noteHTML(s.note, 'task') : ''}${s.instruction ? `<p>${esc(tx(s, 'instruction'))}</p>` : ''}${MT.runExtra(s)}</div>
       ${shown.length ? `<div class="fields">${shown.map((f) => fieldInput(f, vals[f.id], isOOR(f, vals[f.id]))).join('')}</div>` : ''}
       ${next ? `<p class="next">${t('Daarna:')} <b>${esc(tx(next, 'title'))}</b> · ${esc(tx(curLoc(ar, next), 'name'))}</p>` : `<p class="next">${t('Dit is de laatste taak.')}</p>`}
     </div>
@@ -807,7 +808,7 @@ const actions = {
   pfCancel: () => { closeProfile(); PF = null; },
   iosContinue: () => { const nx = sheetCtx?.next; closeSheet(); nx?.(); },
   setLang: (a) => { const L = a.dataset.v; if (L === getLang()) return closeSheet(); state.settings.lang = L; save(); setLang(L); location.reload(); },
-  closeSheet, back: () => (view.tab === 'voortgang' ? go('vandaag') : view.tab === 'koppelen' ? go(isCrew() ? 'meer' : 'vandaag') : view.tab === 'verdelen' ? (view.dist ? go('verdelen', { dist: null }) : go('vandaag')) : view.tab === 'rangen' ? (view.rank ? go('rangen', { rank: null }) : go('vandaag')) : go(view.tab)),
+  closeSheet, back: () => (view.tab === 'voortgang' ? go('vandaag') : view.tab === 'koppelen' ? go(isCrew() ? 'meer' : 'vandaag') : view.tab === 'verdelen' ? (DIST.back() || (view.dist ? go('verdelen', { dist: null }) : go('vandaag'))) : view.tab === 'rangen' ? (view.rank ? go('rangen', { rank: null }) : go('vandaag')) : go(view.tab)),
   install: async () => { if (!deferredInstall) return; deferredInstall.prompt(); await deferredInstall.userChoice; deferredInstall = null; render(); },
   hideInstall: () => { state.settings.hideInstall = true; save(); render(); },
   showInstall: () => { state.settings.hideInstall = false; save(); go('routes'); },
@@ -1288,7 +1289,7 @@ function isForMe(r, rank) { const me = state.settings.userName; if (r.intendedNa
 function crewRouteCard(r, rank) {
   const nLoc = new Set(r.steps.map((s) => s.locationId)).size;
   const mine = isForMe(r, rank);
-  return `<article class="card route ${mine ? 'forme' : ''}"><div class="tap" data-act="openRoute" data-id="${r.id}">${mine ? `<span class="tag forme">⭐ ${t('Voor jou')} · ${esc(rankLabel(r.intendedRank || rank))}</span>` : r.intendedRank ? `<span class="tag">🎖 ${t('voor {rank}', { rank: esc(rankLabel(r.intendedRank)) })}</span>` : ''}<h2>${esc(tx(r, 'name'))}</h2><p>${plural(r.steps.length, t('taak'), t('taken'))} · ${plural(nLoc, t('locatie'), t('locaties'))}${r.from ? ` · ${t('van {name}', { name: `<b>${esc(r.from)}</b>` })}` : ''}</p>${r.description ? `<p class="muted">${esc(tx(r, 'description'))}</p>` : ''}${r.stepsDone?.length ? `<p class="okc small">✔ ${t('{a} van {b} al afgetekend', { a: r.stepsDone.length, b: r.steps.length })}</p>` : ''}</div>
+  return `<article class="card route ${mine ? 'forme' : ''}"><div class="tap" data-act="openRoute" data-id="${r.id}">${mine ? `<span class="tag forme">⭐ ${t('Voor jou')} · ${esc(rankLabel(r.intendedRank || rank))}</span>` : r.intendedRank ? `<span class="tag">🎖 ${t('voor {rank}', { rank: esc(rankLabel(r.intendedRank)) })}</span>` : ''}<h2>${esc(tx(r, 'name'))}</h2><p>${plural(r.steps.length, t('taak'), t('taken'))} · ${plural(nLoc, t('locatie'), t('locaties'))}${r.from ? ` · ${t('van {name}', { name: `<b>${esc(r.from)}</b>` })}` : ''}</p>${r.description ? `<p class="muted">${esc(tx(r, 'description'))}</p>` : ''}${r.note ? noteHTML(r.note) : ''}${r.steps.some((x) => x.note) ? `<p class="small muted tncount">💬 ${t('{n} taken met een opmerking', { n: r.steps.filter((x) => x.note).length })}</p>` : ''}${r.stepsDone?.length ? `<p class="okc small">✔ ${t('{a} van {b} al afgetekend', { a: r.stepsDone.length, b: r.steps.length })}</p>` : ''}</div>
       <div class="stack"><button class="btn ok big" data-act="startRun" data-id="${r.id}" ${r.steps.length ? '' : 'disabled'}>${t('▶ Start ronde')}</button></div></article>`;
 }
 // Bemanning: kale startpagina per rang (begroeting, ontvangen rondes, evt. vaste rondes, olie-knoppen).
@@ -1319,9 +1320,13 @@ function crewRunsHTML() {
   const runs = [...state.runs].reverse().slice(0, 5);
   return runs.length ? `<section class="card"><h2>${t('Laatste rondes')}</h2><ul class="locs">${runs.map((run) => { const c = runStats(run); return `<li><span>${esc(run.routeName)}<small> · ${fmtDT(run.finishedAt)} · ✔ ${c.done} ↷ ${c.skipped} ⚠ ${c.problem}${run.reportSentAt ? ' · 📨 ' + t('verstuurd') : ''}</small></span><button class="btn small" data-act="sendReport" data-id="${run.id}">${run.reportSentAt ? t('Opnieuw sturen') : t('📨 Stuur rapport')}</button></li>`; }).join('')}</ul></section>` : '';
 }
+/** Aantekening van Beheer (vrije tekst, niet vertaald): bij de ronde of bij één taak. */
+function noteHTML(txt, kind = 'route') {
+  return `<div class="anote ${kind}"><span class="an-lbl">${kind === 'task' ? '💬 ' + t('Opmerking') : '📝 ' + t('Aantekening')}</span><span class="an-t">${esc(txt)}</span></div>`;
+}
 function crewRouteSheet(r) {
   if (!r) return;
-  openSheet(`<h2>${esc(tx(r, 'name'))}</h2>${r.description ? `<p class="muted">${esc(tx(r, 'description'))}</p>` : ''}<ol class="plain">${r.steps.map((s) => `<li><b>${esc(tx(s, 'title'))}</b><br><small>📍 ${esc(tx(loc(s.locationId), 'name') || '?')}</small></li>`).join('')}</ol><div class="stack"><button class="btn ok big" data-act="startRun" data-id="${r.id}">${t('▶ Start ronde')}</button><button class="btn danger small" data-act="crewDelRoute" data-id="${r.id}">${t('Route verwijderen van dit toestel')}</button></div>`);
+  openSheet(`<h2>${esc(tx(r, 'name'))}</h2>${r.description ? `<p class="muted">${esc(tx(r, 'description'))}</p>` : ''}${r.note ? noteHTML(r.note) : ''}<ol class="plain">${r.steps.map((s) => `<li><b>${esc(tx(s, 'title'))}</b><br><small>📍 ${esc(tx(loc(s.locationId), 'name') || '?')}</small>${s.note ? noteHTML(s.note, 'task') : ''}</li>`).join('')}</ol><div class="stack"><button class="btn ok big" data-act="startRun" data-id="${r.id}">${t('▶ Start ronde')}</button><button class="btn danger small" data-act="crewDelRoute" data-id="${r.id}">${t('Route verwijderen van dit toestel')}</button></div>`);
 }
 // ---------- profiel (naam + rang) ----------
 function greetHTML() {
