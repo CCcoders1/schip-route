@@ -1049,7 +1049,14 @@ export const DICT = {
 "{n} lijstjes": "{n} lists",
 "{n} onderwerpen": "{n} subjects",
 "{n} opmerkingen bij taken": "{n} task remarks",
-"{n} taken met een opmerking": "{n} tasks with a remark"
+"{n} taken met een opmerking": "{n} tasks with a remark",
+"1 afvinking ongedaan gemaakt": "1 sign-off undone",
+"1 taak afgevinkt": "1 task signed off",
+"Ongedaan maken": "Undo",
+"Zelf afvinken": "Sign off myself",
+"Zelf afvinken ({n})": "Sign off myself ({n})",
+"{n} afvinkingen ongedaan gemaakt": "{n} sign-offs undone",
+"{n} taken afgevinkt": "{n} tasks signed off"
 },
 "id": {
 "(Android/iPhone), tik op": "(Android/iPhone), ketuk",
@@ -2100,6 +2107,13 @@ export const DICT = {
 "{n} lijstjes": "{n} daftar",
 "{n} onderwerpen": "{n} topik",
 "{n} opmerkingen bij taken": "{n} komentar pada tugas",
-"{n} taken met een opmerking": "{n} tugas dengan komentar"
+"{n} taken met een opmerking": "{n} tugas dengan komentar",
+"1 afvinking ongedaan gemaakt": "1 centang dibatalkan",
+"1 taak afgevinkt": "1 tugas dicentang",
+"Ongedaan maken": "Batalkan",
+"Zelf afvinken": "Centang sendiri",
+"Zelf afvinken ({n})": "Centang sendiri ({n})",
+"{n} afvinkingen ongedaan gemaakt": "{n} centang dibatalkan",
+"{n} taken afgevinkt": "{n} tugas dicentang"
 }
 };

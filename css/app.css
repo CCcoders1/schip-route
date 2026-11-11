@@ -566,3 +566,17 @@ p.anote.small { display: block; } p.anote.small .an-lbl { display: block; }
 .present small { color: var(--muted); white-space: nowrap; }
 .pcrumb { margin: 2px 0 0; color: var(--muted); font-weight: 600; }
 html:has(.psubj, .ptasks) header.top h1 { font-size: 1.3rem; line-height: 1.2; }
+/* ---------- v1.16: zelf afvinken ---------- */
+.dtask { position: relative; }
+.dtask:has(.dself) { padding-right: 60px; }
+.dself { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); width: 44px; height: 44px; border-radius: 50%; border: 2px solid var(--ok); background: var(--card); color: var(--ok); font-size: 1.25rem; font-weight: 800; cursor: pointer; }
+.dself:active { background: var(--ok); color: #fff; }
+.dtask.selfdone { opacity: .8; }
+.dfoot-row { display: flex; gap: 8px; }
+.dfoot-row .btn { flex: 1; min-height: 60px; font-size: 1rem; line-height: 1.2; }
+.dfoot-row .dselfbtn { flex: 0 0 40%; }
+.dtasks { padding-bottom: calc(170px + env(safe-area-inset-bottom)); }
+#toast.act { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 10px 10px 10px 18px; text-align: left; width: max-content; max-width: calc(100vw - 32px); box-sizing: border-box; }
+#toast.act[hidden] { display: none; }
+#toast .tbtn { flex: none; min-height: 44px; padding: 6px 14px; border-radius: 10px; border: 2px solid #fff; background: transparent; color: #fff; font: inherit; font-weight: 700; cursor: pointer; }
+html:has(.dfoot) #toast { bottom: calc(220px + env(safe-area-inset-bottom)); }

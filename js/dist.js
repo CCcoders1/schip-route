@@ -34,6 +34,10 @@ const assignOf = (l, x) => { const e = D().a[l.key]?.[x.key]; return e?.rank ? e
 /** Na het versturen afgetekend? (MARAD-afmelding op/na de dag van toewijzen) → { by, date } of null. */
 const doneOf = (l, x) => { const e = assignOf(l, x); const tk = x.marad && A.state.maint?.tasks?.find((y) => y.id === x.marad); const ad = tk?.appDone; if (!e || !ad?.date || ad.date < String(e.at).slice(0, 10)) return null; const lg = (tk.doneLog || []).filter((d) => d.date === ad.date).pop(); return { by: lg?.by || '', date: ad.date }; };
 const selOf = (l) => new Set(D().sel[l.key] || []);
+const today = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
+/** Vandaag al afgemeld (door wie dan ook: zelf, rapport of ronde)? → { by } of null. Leest de bestaande MARAD-afmelding. */
+const doneToday = (x) => { const tk = x.marad && A.state.maint?.tasks?.find((y) => y.id === x.marad); if (tk?.appDone?.date !== today()) return null; const lg = (tk.doneLog || []).filter((z) => z.date === tk.appDone.date).at(-1); return { by: lg?.by || '' }; };
+const canSelf = (x) => !!x.marad && !doneToday(x);
 const setSel = (l, s) => { D().sel[l.key] = [...s]; };
 const whoKey = (a) => a.rank + '|' + (a.name || '');
 const whoLabel = (a) => `${RANK_ICON[a.rank] || '👤'} ${rankLabel(a.rank)}${a.name ? ' · ' + a.name : ''}`;
@@ -94,15 +98,17 @@ function listView(l) {
     h += `<h3 class="dsec ${cls}" data-st="${st}">${lbl} (${g.length})</h3>`;
     for (const x of g) {
       const on = sel.has(x.key), a = assignOf(l, x), dn = a && doneOf(l, x); const hint = normRanks(x.ranks).find((r) => RANK_IDS.includes(r));
-      h += `<div class="dtask ${on ? 'sel' : ''} st-${st}" role="checkbox" tabindex="0" aria-checked="${on}" data-act="distTog" data-t="${esc(x.key)}" data-st="${st}">
+      const td = !dn && doneToday(x);
+      h += `<div class="dtask ${on ? 'sel' : ''} st-${st} ${td ? 'selfdone' : ''}" role="checkbox" tabindex="0" aria-checked="${on}" data-act="distTog" data-t="${esc(x.key)}" data-st="${st}">
         <span class="dchk">${on ? '✔' : ''}</span><div class="dt-body"><b>${esc(x.title)}</b><small>${esc(x.sub)}${x.due ? ` · 📅 ${esc(x.due)}` : ''}</small>
-        <span class="dtags">${cls ? `<span class="tag ${cls}">${lbl}</span>` : ''}${hint ? `<span class="tag ghost">${RANK_ICON[hint]} ${esc(rankLabel(hint))}</span>` : ''}${a ? (dn ? `<span class="tag ok sdone">✔ ${t('Afgetekend door {name}', { name: esc(dn.by || whoShort(a)) })}</span>` : `<span class="tag sent">📤 ${esc(whoShort(a))}</span>`) : ''}</span></div></div>`;
+        <span class="dtags">${cls ? `<span class="tag ${cls}">${lbl}</span>` : ''}${hint ? `<span class="tag ghost">${RANK_ICON[hint]} ${esc(rankLabel(hint))}</span>` : ''}${a ? (dn ? `<span class="tag ok sdone">✔ ${t('Afgetekend door {name}', { name: esc(dn.by || whoShort(a)) })}</span>` : `<span class="tag sent">📤 ${esc(whoShort(a))}</span>`) : ''}${td ? `<span class="tag ok sdone">✔ ${t('Afgetekend door {name}', { name: esc(td.by || t('ik')) })}</span>` : ''}</span></div>${canSelf(x) ? `<button class="dself" data-act="distSelfOne" data-t="${esc(x.key)}" aria-label="${t('Zelf afvinken')}" title="${t('Zelf afvinken')}">✓</button>` : ''}</div>`;
     }
   }
   h += '</div>';
   let pv = '';
   if (sel.size) { try { pv = routePreview(A.MT.distRoute(itemsOf(l, sel), { name: '' }).steps); } catch (e) { console.warn(e); } }
-  h += `<div class="dfoot">${pv ? `<p class="dprev small">🧭 ${t('Route:')} ${pv}</p>` : ''}<button class="btn primary huge" data-act="distSendSel" ${sel.size ? '' : 'disabled'}>📤 ${t('Stuur selectie ({n}) naar…', { n: sel.size })}</button></div>`;
+  const nSelf = l.tasks.filter((x) => sel.has(x.key) && canSelf(x)).length;
+  h += `<div class="dfoot">${pv ? `<p class="dprev small">🧭 ${t('Route:')} ${pv}</p>` : ''}<div class="dfoot-row"><button class="btn ok big dselfbtn" data-act="distSelf" ${nSelf ? '' : 'disabled'}>✔ ${t('Zelf afvinken ({n})', { n: nSelf })}</button><button class="btn primary big dsendbtn" data-act="distSendSel" ${sel.size ? '' : 'disabled'}>📤 ${t('Stuur selectie ({n}) naar…', { n: sel.size })}</button></div></div>`;
   return h;
 }
 function sendView() {
@@ -251,7 +257,25 @@ async function sendPre() {
     <div class="stack"><button class="btn primary big" data-act="closeSheet">${t('OK')}</button></div>`);
 }
 
+// ---------- zelf afvinken (v1.16) ----------
+let syncT = 0;
+/** Afmelden via de bestaande MARAD-afmelding; daarna (na de ongedaan-maken-tijd) de bemanning bijwerken. */
+function selfDo(l, keys) {
+  const ids = l.tasks.filter((x) => keys.includes(x.key) && canSelf(x)).map((x) => x.marad);
+  const es = A.MT.selfSignoff(ids); if (!es.length) return;
+  const sel = selOf(l); for (const k of keys) sel.delete(k); setSel(l, sel); A.save();
+  const y = scrollY; A.render(); scrollTo(0, y);
+  A.toastAct(es.length === 1 ? t('1 taak afgevinkt') : t('{n} taken afgevinkt', { n: es.length }), t('Ongedaan maken'), 'distUndo', 8000, { ids: es.map((e) => e.id).join(',') });
+  clearTimeout(syncT); syncT = setTimeout(() => A.LINK.syncDone(), 9000); // pas na de ongedaan-maken-tijd naar de bemanning
+}
 export const actions = {
+  distSelf: () => { const l = listBy(A.view().dist); if (l) selfDo(l, [...selOf(l)]); },
+  distSelfOne: (a) => { const l = listBy(A.view().dist); if (l) selfDo(l, [a.dataset.t]); },
+  distUndo: (a) => {
+    const n = A.MT.undoSignoffs(String(a.dataset.ids || '').split(',').filter(Boolean));
+    document.querySelector('#toast').hidden = true; const y = scrollY; A.render(); scrollTo(0, y);
+    if (n) A.toast(n === 1 ? t('1 afvinking ongedaan gemaakt') : t('{n} afvinkingen ongedaan gemaakt', { n }));
+  },
   goDist: () => { A.closeSheet(); A.go('verdelen', { dist: null }); },
   distOpen: (a) => A.go('verdelen', { dist: a.dataset.k }),
   distSendView: () => A.go('verdelen', { dist: '__send' }),

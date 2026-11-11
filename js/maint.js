@@ -57,7 +57,7 @@ export function initMaint(api) {
   $f('#fileMarad')?.addEventListener('change', async (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) readFile(f); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.id === 'mPw') { e.preventDefault(); actions.mUnlock(); } });
   if (A.legacyMaint) migrateLegacy(A.legacyMaint);
-  return { distLists, distRoute, tacticalOrder, byUrgency, rankOverview, rankRoundsHTML, view, actions, applyRun, applyPending, ensureMaint, runExtra, maradFields, persist, refreshTemplates, rankNames, templateInfo, sugCount, todayHTML, weekBoard, startFixed, needsReunlock, slimDefault, weekStats };
+  return { distLists, distRoute, tacticalOrder, byUrgency, rankOverview, rankRoundsHTML, view, actions, applyRun, applyPending, ensureMaint, runExtra, maradFields, persist, refreshTemplates, rankNames, templateInfo, sugCount, todayHTML, weekBoard, selfSignoff, undoSignoffs, startFixed, needsReunlock, slimDefault, weekStats };
 }
 const $f = (s) => document.querySelector(s);
 
@@ -800,3 +800,23 @@ export const actions = {
   mEntered: () => { if (!confirm(t('Alle open afmeldingen markeren als ingevoerd in MARAD?'))) return; for (const s of M().signoffs) s.enteredInMarad = s.enteredInMarad || new Date().toISOString(); S(); A.render(); },
 };
 export { parseDate };
+// ---------- v1.16: zelf afvinken (Beheer) – zelfde afmelding als in het taakscherm / een ronde ----------
+/** Taken meteen afmelden door Beheer zelf (vandaag, op eigen naam). Geeft de afmeldingen terug (voor Ongedaan maken). */
+export function selfSignoff(ids) {
+  const m = M(); if (!m?.tasks) return [];
+  const by = A.state.settings.userName || ''; const d = todayISO(); const out = [];
+  for (const id of new Set(ids)) {
+    const x = m.tasks.find((y) => y.id === id); if (!x || x.appDone?.date === d) continue;
+    const e = markDone(x, { date: d, by, remarks: '', runHours: null, compText: compText(comp(x)) }); e.via = 'zelf';
+    m.signoffs.push(e); out.push(e);
+  }
+  if (out.length) S();
+  return out;
+}
+/** Zelf afvinken terugdraaien (alleen de afmeldingen van deze actie). */
+export function undoSignoffs(entryIds) {
+  const m = M(); if (!m?.tasks) return 0; const ids = new Set(entryIds); let n = 0;
+  for (const s of [...m.signoffs].reverse()) if (ids.has(s.id)) { const x = m.tasks.find((y) => y.id === s.taskId); if (x) undoDone(x, s); n++; }
+  m.signoffs = m.signoffs.filter((s) => !ids.has(s.id)); if (n) S();
+  return n;
+}

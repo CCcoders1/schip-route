@@ -9,7 +9,7 @@ import { shipSVG, svgPointToLoc, VIEWS } from './shipmap.js';
 import { t, tx, setTx, getLang, setLang, LANGS, LOCALES } from './i18n.js';
 import { RANK_IDS, RANK_ICON, normRank, rankLabel } from './ranks.js';
 
-const APP_VERSION = '1.15.0';
+const APP_VERSION = '1.16.0';
 const TEST = self.__SRTEST || {}; // alleen tests: { noSplash, noProfile }
 const OB = self.OutboxCore;
 const $ = (s, el = document) => el.querySelector(s);
@@ -40,8 +40,14 @@ let outboxPending = 0, outboxErr = false;
 
 // ---------- algemene helpers ----------
 function toast(msg, ms = 2500) {
-  const tb = $('#toast'); tb.textContent = msg; tb.hidden = false;
+  const tb = $('#toast'); tb.textContent = msg; tb.hidden = false; tb.classList.remove('act');
   clearTimeout(toast.tm); toast.tm = setTimeout(() => (tb.hidden = true), ms);
+}
+/** Melding met één knop (bijv. "Ongedaan maken"); de knop werkt via data-act zoals elke andere knop. */
+function toastAct(msg, label, act, ms = 8000, data = {}) {
+  const tb = $('#toast'); tb.innerHTML = `<span>${esc(msg)}</span><button class="tbtn" data-act="${act}" ${Object.entries(data).map(([k, v]) => `data-${k}="${esc(v)}"`).join(' ')}>${esc(label)}</button>`;
+  tb.hidden = false; tb.classList.add('act');
+  clearTimeout(toast.tm); toast.tm = setTimeout(() => { tb.hidden = true; tb.classList.remove('act'); }, ms);
 }
 function openSheet(html, ctx = {}) {
   const el = $('#sheet');
@@ -1620,7 +1626,7 @@ const OIL = initOil({ askProfile: (fn) => askProfile(fn), state, save, rid, esc,
 Object.assign(actions, OIL.actions);
 const LINK = initLink({ state, save, esc, header, openSheet, closeSheet, toast, render: () => render(), go: (...x) => go(...x), view: () => view, rid, fmtDT, isCrew, copyText, queueQuiet, importPackage: (p, c) => importPackage(p, c), autoImportReport: (...x) => autoImportReport(...x) });
 Object.assign(actions, LINK.actions);
-const DIST = initDist({ LINK, state, save, esc, header, openSheet, closeSheet, toast, render: () => render(), go: (...x) => go(...x), view: () => view, MT, rid, fmtDT, tx: (o, k) => tx(o, k), loc: (id) => loc(id) });
+const DIST = initDist({ LINK, state, save, toastAct, esc, header, openSheet, closeSheet, toast, render: () => render(), go: (...x) => go(...x), view: () => view, MT, rid, fmtDT, tx: (o, k) => tx(o, k), loc: (id) => loc(id) });
 Object.assign(actions, DIST.actions);
 
 // ---------- start ----------
