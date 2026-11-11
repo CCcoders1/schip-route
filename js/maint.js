@@ -492,7 +492,7 @@ function boardHTML({ sent = [], busy = [], doneAfter = () => false } = {}) {
     const xs = sent.filter((s) => s.list === key && !doneAfter(s.aid, s.ver));
     const b = xs.find((s) => busy.some((x) => x.route === s.routeId));
     if (b) return `<span class="wc-who busy">⏳ ${t('{name} is bezig', { name: A.esc(b.name || rankLabel(b.rank)) })}</span>`;
-    return xs.length ? `<span class="wc-who">📤 ${t('bij {name}', { name: A.esc(xs.map((s) => s.name || rankLabel(s.rank)).join(', ')) })}</span>` : '';
+    return xs.length ? `<span class="wc-who">📤 ${t('bij {name}', { name: A.esc(xs.map((s) => (s.rank === 'self' ? t('Ikzelf') : s.name || rankLabel(s.rank))).join(', ')) })}</span>` : '';
   };
   const size = (n) => { const [l, k] = S_[sizeOf(n)]; return `<span class="wc-size" title="${t('Omvang')}"><i class="pips p${k}" aria-hidden="true"><b></b><b></b><b></b></i>${l}</span>`; };
   const dd = (iso, o) => new Date(iso + 'T12:00:00').toLocaleDateString(LOCALES[getLang()], o);

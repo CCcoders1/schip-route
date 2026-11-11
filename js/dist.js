@@ -3,7 +3,7 @@
 // (slimme volgorde over het schip, binnen een plek de te late taken eerst) en plaatst het lijstje direct in de app
 // van een gekoppeld persoon (v1.13: geen WhatsApp meer).
 // Toewijzingen en selectie staan lokaal (state.dist), gekoppeld aan lijst + taak.
-import { t } from './i18n.js';
+import { t, getLang, LOCALES } from './i18n.js';
 import { RANK_IDS, RANK_ICON, normRank, normRanks, rankLabel } from './ranks.js';
 
 let A; // helpers uit app.js
@@ -20,7 +20,7 @@ export function initDist(api) {
     if (el.dataset.pnote != null) { (P.notes ||= {})[el.dataset.pnote] = el.value; saveSoon(); }
     else if (el.dataset.ptnote != null) { const [lk, tk] = el.dataset.ptnote.split('|'); ((P.tnotes ||= {})[lk] ||= {})[tk] = el.value; saveSoon(); }
   });
-  return { view, actions, back };
+  return { view, actions, back, selfHTML, selfBusy };
 }
 let saveT = 0; const saveSoon = () => { clearTimeout(saveT); saveT = setTimeout(() => A.save(), 300); };
 const clean = (x) => String(x || '').replace(/\r/g, '').trim().slice(0, 1000);
@@ -40,8 +40,13 @@ const doneToday = (x) => { const tk = x.marad && A.state.maint?.tasks?.find((y) 
 const canSelf = (x) => !!x.marad && !doneToday(x);
 const setSel = (l, s) => { D().sel[l.key] = [...s]; };
 const whoKey = (a) => a.rank + '|' + (a.name || '');
-const whoLabel = (a) => `${RANK_ICON[a.rank] || '👤'} ${rankLabel(a.rank)}${a.name ? ' · ' + a.name : ''}`;
-const whoShort = (a) => a.name || rankLabel(a.rank);
+// v1.17: "Ikzelf" – een lijstje voor Beheer zelf (blijft op dit toestel; geen koppeling, geen ntfy)
+const SELF = 'self';
+const isSelf = (a) => a?.rank === SELF;
+const myName = () => A.state.settings.userName || '';
+const icoOf = (a) => (isSelf(a) ? '🙋' : RANK_ICON[a.rank] || '👤');
+const whoLabel = (a) => (isSelf(a) ? `🙋 ${t('Ikzelf')}` : `${RANK_ICON[a.rank] || '👤'} ${rankLabel(a.rank)}${a.name ? ' · ' + a.name : ''}`);
+const whoShort = (a) => (isSelf(a) ? t('Ikzelf') : a.name || rankLabel(a.rank));
 const ST = () => ({ overdue: ['red', t('Te laat')], week: ['orange', t('Binnen 7 dagen')], month: ['yellow', t('Binnen 30 dagen')], later: ['', t('Later')], hours: ['', t('Op draaiuren')], none: ['', t('Geen datum')] });
 const ST_ORDER = ['overdue', 'week', 'month', 'later', 'hours', 'none'];
 const stOf = (x) => (ST_ORDER.includes(x.st) ? x.st : 'none');
@@ -101,7 +106,7 @@ function listView(l) {
       const td = !dn && doneToday(x);
       h += `<div class="dtask ${on ? 'sel' : ''} st-${st} ${td ? 'selfdone' : ''}" role="checkbox" tabindex="0" aria-checked="${on}" data-act="distTog" data-t="${esc(x.key)}" data-st="${st}">
         <span class="dchk">${on ? '✔' : ''}</span><div class="dt-body"><b>${esc(x.title)}</b><small>${esc(x.sub)}${x.due ? ` · 📅 ${esc(x.due)}` : ''}</small>
-        <span class="dtags">${cls ? `<span class="tag ${cls}">${lbl}</span>` : ''}${hint ? `<span class="tag ghost">${RANK_ICON[hint]} ${esc(rankLabel(hint))}</span>` : ''}${a ? (dn ? `<span class="tag ok sdone">✔ ${t('Afgetekend door {name}', { name: esc(dn.by || whoShort(a)) })}</span>` : `<span class="tag sent">📤 ${esc(whoShort(a))}</span>`) : ''}${td ? `<span class="tag ok sdone">✔ ${t('Afgetekend door {name}', { name: esc(td.by || t('ik')) })}</span>` : ''}</span></div>${canSelf(x) ? `<button class="dself" data-act="distSelfOne" data-t="${esc(x.key)}" aria-label="${t('Zelf afvinken')}" title="${t('Zelf afvinken')}">✓</button>` : ''}</div>`;
+        <span class="dtags">${cls ? `<span class="tag ${cls}">${lbl}</span>` : ''}${hint ? `<span class="tag ghost">${RANK_ICON[hint]} ${esc(rankLabel(hint))}</span>` : ''}${a ? (dn ? `<span class="tag ok sdone">✔ ${t('Afgetekend door {name}', { name: esc(dn.by || whoShort(a)) })}</span>` : `<span class="tag sent">${isSelf(a) ? '🙋' : '📤'} ${esc(whoShort(a))}</span>`) : ''}${td ? `<span class="tag ok sdone">✔ ${t('Afgetekend door {name}', { name: esc(td.by || t('ik')) })}</span>` : ''}</span></div>${canSelf(x) ? `<button class="dself" data-act="distSelfOne" data-t="${esc(x.key)}" aria-label="${t('Zelf afvinken')}" title="${t('Zelf afvinken')}">✓</button>` : ''}</div>`;
     }
   }
   h += '</div>';
@@ -123,7 +128,7 @@ function sendView() {
       ${r.note ? `<p class="anote small"><span class="an-lbl">📝 ${t('Aantekening')}</span>${esc(r.note)}</p>` : ''}
       <details><summary>${t('Taken bekijken (looproute)')}</summary><ol class="plain small">${r.steps.map((x) => `<li>${esc(A.tx(x, 'title'))}${x.note ? `<span class="tnote">💬 ${esc(x.note)}</span>` : ''}</li>`).join('')}</ol></details>
       ${statusLine(s)}
-      ${s.via === 'app' ? (A.LINK.doneAfter(s.aid, s.ver) ? '' : `<div class="row"><button class="btn" data-act="distRedeliver" data-k="${esc(k)}">🔁 ${t('Opnieuw plaatsen')}</button></div>`) : `<p class="muted small">${t('Nog niet in de app geplaatst. Koppel deze persoon (Voortgang → Iemand koppelen) en stuur het lijstje opnieuw.')}</p>`}</section>`;
+      ${s.via === 'self' ? `<p class="small dstat ${selfState(s).done ? 'done okc' : 'ok'}">${selfState(s).done ? '✅ ' + t('Afgerond') : '🙋 ' + t('Staat bovenaan je Rondes')}</p>` : s.via === 'app' ? (A.LINK.doneAfter(s.aid, s.ver) ? '' : `<div class="row"><button class="btn" data-act="distRedeliver" data-k="${esc(k)}">🔁 ${t('Opnieuw plaatsen')}</button></div>`) : `<p class="muted small">${t('Nog niet in de app geplaatst. Koppel deze persoon (Voortgang → Iemand koppelen) en stuur het lijstje opnieuw.')}</p>`}</section>`;
   }
   return h;
 }
@@ -141,7 +146,9 @@ function pickSheet(l) {
   const usedRaw = [...Object.values(D().a).flatMap((m) => Object.values(m)), ...Object.values(D().sent)].filter((e) => e.rank && e.name && !people.some((c) => c.name === e.name)).map((e) => e.rank + '|' + e.name);
   const used = [...new Set(usedRaw)];
   const pbtn = (rank, name) => { const pc = A.LINK.pairedFor({ rank, name }); return `<button class="btn pbtn ${pc ? 'paired' : ''}" data-act="distSet" data-r="${esc(rank)}" data-n="${esc(name)}">${RANK_ICON[rank]} <b>${esc(name)}</b> <small>${esc(rankLabel(rank))}${pc ? ' · 🔗 ' + t('direct in app') : ''}</small></button>`; };
+  const me = myName();
   A.openSheet(`<h2>${t('Stuur {n} taken naar…', { n })}</h2><p class="muted small">${t('De app zet de taken zelf in een slimme looproute. Gekoppelde mensen (🔗) krijgen het lijstje direct in hun app. Wie nog niet gekoppeld is, koppel je eerst (Voortgang → Iemand koppelen).')}</p>
+    <button class="btn pbtn pself" data-act="distSet" data-self="1">🙋 <b>${t('Ikzelf')}${me ? ` (${esc(me)})` : ''}</b> <small>${t('Komt bovenaan je Rondes · geen koppeling nodig')}</small></button>
     ${people.length || used.length ? `<div class="flbl">${t('Persoon')}</div><div class="pgrid">${people.map((c) => pbtn(normRank(c.func), c.name)).join('')}${used.map((k) => pbtn(...k.split('|'))).join('')}</div>` : ''}
     <div class="flbl">${t('Rang')}</div><label class="small">${t('Naam erbij (optioneel)')}<input id="dName" autocomplete="off" autocapitalize="words" placeholder="${t('bijv. voornaam')}" value=""></label>
     <div class="rankgrid compact">${RANK_IDS.map((r) => `<button class="rankcard" data-act="distSet" data-r="${esc(r)}"><span class="ri">${RANK_ICON[r]}</span><b>${esc(rankLabel(r))}</b></button>`).join('')}</div>
@@ -171,15 +178,15 @@ function startPre(who) {
 }
 const preview = (x, n = 70) => { const s_ = clean(x).replace(/\s+/g, ' '); return s_.length > n ? s_.slice(0, n - 1) + '…' : s_; };
 function preView() {
-  const P = D().pre; const who = { rank: P.rank, name: P.name }; const c = A.LINK.pairedFor(who);
+  const P = D().pre; const who = { rank: P.rank, name: P.name }; const me = isSelf(who); const c = me ? null : A.LINK.pairedFor(who);
   const subs = subjects(P);
   if (P.open) { const sub = subs.find((x) => x.l.key === P.open); if (sub) return subjectView(P, sub, c); P.open = null; }
   const nT = subs.reduce((a, x) => a + x.items.length, 0);
   const nNotes = subs.filter((x) => clean(P.notes?.[x.l.key])).length + subs.reduce((a, x) => a + x.items.filter((i) => clean(P.tnotes?.[x.l.key]?.[i.key])).length, 0);
   let h = A.header(t('Taken verdelen'), true) + `<h2 class="dlh">📤 ${t('Versturen')}</h2>`;
-  h += `<section class="prewho"><span class="pw-ic">${RANK_ICON[who.rank] || '👤'}</span><span class="pw-body"><small>${t('Naar')}</small><b>${esc(whoShort(who))}</b><small>${esc(rankLabel(who.rank))}${c ? ' · 🔗 ' + t('direct in app') : ''}</small></span><button class="btn small ghost" data-act="preWho">${t('Wijzigen')}</button></section>`;
+  h += `<section class="prewho ${me ? 'self' : ''}"><span class="pw-ic">${icoOf(who)}</span><span class="pw-body"><small>${t('Naar')}</small><b>${esc(whoShort(who))}</b><small>${me ? t('Bovenaan je Rondes, op dit toestel') : esc(rankLabel(who.rank)) + (c ? ' · 🔗 ' + t('direct in app') : '')}</small></span><button class="btn small ghost" data-act="preWho">${t('Wijzigen')}</button></section>`;
   h += `<div class="wb-head"><h2>${t('Onderwerpen')}</h2><span class="wb-range">${subs.length === 1 ? t('1 onderwerp') : t('{n} onderwerpen', { n: subs.length })} · ${t('{n} taken', { n: nT })}</span></div>`;
-  h += `<p class="wb-sub">${t('Elk onderwerp wordt een eigen lijstje in zijn app. Voeg desgewenst een aantekening toe – leeg laten mag.')}</p>`;
+  h += `<p class="wb-sub">${me ? t('Elk onderwerp wordt een eigen lijstje bovenaan je Rondes. Voeg desgewenst een aantekening toe – leeg laten mag.') : t('Elk onderwerp wordt een eigen lijstje in zijn app. Voeg desgewenst een aantekening toe – leeg laten mag.')}</p>`;
   if (!subs.length) h += `<p class="wb-empty">${t('Geen taken geselecteerd.')}</p>`;
   h += `<div class="wb-list">`;
   for (const { l, items } of subs) {
@@ -192,13 +199,13 @@ function preView() {
   }
   h += `</div>`;
   h += `<div class="dfoot prefoot"><p class="dprev small">${subs.length === 1 ? t('1 lijstje') : t('{n} lijstjes', { n: subs.length })} · ${t('{n} taken', { n: nT })}${nNotes ? ' · ' + (nNotes === 1 ? t('1 aantekening') : t('{n} aantekeningen', { n: nNotes })) : ''}</p>
-    <button class="btn primary huge" data-act="preSend" ${subs.length ? '' : 'disabled'}>📤 ${t('Versturen naar {name}', { name: esc(whoShort(who)) })}</button></div>`;
+    <button class="btn primary huge" data-act="preSend" ${subs.length ? '' : 'disabled'}>${me ? '🙋 ' + t('In mijn Rondes zetten') : '📤 ' + t('Versturen naar {name}', { name: esc(whoShort(who)) })}</button></div>`;
   return h;
 }
 function subjectView(P, { l, items }, c) {
   const edit = new Set(P.edit || []);
   let h = A.header(t('Taken verdelen'), true) + `<p class="pcrumb small">📤 ${t('Versturen')} › ${t('Aantekeningen')}</p><h2 class="dlh">${l.icon} ${esc(l.name)}</h2><p class="shipsub">${items.length === 1 ? t('1 taak') : t('{n} taken', { n: items.length })} · → ${esc(whoShort({ rank: P.rank, name: P.name }))}</p>`;
-  h += `<label class="pnote"><span class="flbl">📝 ${t('Aantekening bij dit onderwerp')}</span><textarea data-pnote="${esc(l.key)}" rows="3" maxlength="1000" placeholder="${t('Optioneel – bijv. waar op te letten bij deze ronde')}">${esc(P.notes?.[l.key] || '')}</textarea><small class="muted">${t('Komt bovenaan het lijstje in zijn app.')}</small></label>`;
+  h += `<label class="pnote"><span class="flbl">📝 ${t('Aantekening bij dit onderwerp')}</span><textarea data-pnote="${esc(l.key)}" rows="3" maxlength="1000" placeholder="${t('Optioneel – bijv. waar op te letten bij deze ronde')}">${esc(P.notes?.[l.key] || '')}</textarea><small class="muted">${isSelf(P) ? t('Komt bovenaan het lijstje in je Rondes.') : t('Komt bovenaan het lijstje in zijn app.')}</small></label>`;
   h += `<h3 class="sec">💬 ${t('Opmerking per taak')} <small>(${t('optioneel')})</small></h3><div class="ptasks">`;
   for (const x of items) {
     const v = P.tnotes?.[l.key]?.[x.key] || ''; const open = v || edit.has(l.key + '|' + x.key);
@@ -228,6 +235,7 @@ function sendOne(l, who, c, note, tnotes, quiet) {
   const r = A.MT.distRoute(itemsOf(l, sel), { name: l.name, assignee: who.name });
   const id = 'r-dist-' + slug(l.key) + '-' + slug(who.rank) + (who.name ? '-' + slug(who.name) : '');
   Object.assign(r, { id, name: l.name, tr: undefined, source: 'dist', distList: l.key, intendedRank: who.rank, intendedName: who.name, description: '' });
+  if (isSelf(who)) Object.assign(r, { self: true, intendedName: myName(), assignee: myName(), stepsDone: [] });
   delete r.tr;
   const tn = {}; for (const [k, v] of Object.entries(tnotes || {})) { const x = clean(v); if (x && sel.has(k)) tn[k] = x; }
   const nt = clean(note); if (nt) r.note = nt; else delete r.note;
@@ -236,12 +244,14 @@ function sendOne(l, who, c, note, tnotes, quiet) {
   const prev = D().sent[key] || {};
   D().sent[key] = { ...prev, at, n: r.steps.length, routeId: id, rank: who.rank, name: who.name, list: l.key, listName: l.name, note: nt, tnotes: tn };
   D().sel[l.key] = [];
-  if (!r.intendedName) r.intendedName = c.name;
+  if (!r.intendedName) r.intendedName = c?.name || '';
   return { r, key };
 }
 async function sendPre() {
   const P = D().pre; if (!P) return;
-  const who = { rank: P.rank, name: P.name }; const c = A.LINK.pairedFor(who);
+  const who = { rank: P.rank, name: P.name };
+  if (isSelf(who)) return sendSelf(P, who);
+  const c = A.LINK.pairedFor(who);
   if (!c) return needPair(who);
   const subs = subjects(P); if (!subs.length) return;
   const done = [];
@@ -257,6 +267,81 @@ async function sendPre() {
     <div class="stack"><button class="btn primary big" data-act="closeSheet">${t('OK')}</button></div>`);
 }
 
+// ---------- lijstje voor mezelf (v1.17) ----------
+/** Zelfde weg als naar een ander (onderwerpen, aantekeningen, één kaart per ronde × ontvanger), maar alleen lokaal: geen outbox, geen ntfy. */
+function sendSelf(P, who) {
+  const subs = subjects(P); if (!subs.length) return;
+  const done = [];
+  for (const { l } of subs) { const x = sendOne(l, who, null, P.notes?.[l.key], P.tnotes?.[l.key], true); if (x) { Object.assign(D().sent[x.key], { via: 'self', ver: Date.now(), name: '' }); done.push(x); } }
+  const from = P.from; D().pre = null; A.save();
+  A.go('verdelen', { dist: from && listBy(from) ? from : null });
+  A.openSheet(`<h2>🙋 ${t('In je Rondes gezet')}</h2>
+    <ul class="present">${done.map(({ r }) => `<li><b>${esc(A.tx(r, 'name'))}</b><small>${t('{n} taken', { n: r.steps.length })}${r.note ? ' · 📝' : ''}${r.steps.some((s_) => s_.note) ? ' · 💬 ' + r.steps.filter((s_) => s_.note).length : ''}</small></li>`).join('')}</ul>
+    <p class="okbox">${t('Staat bovenaan je Rondes onder Vandaag. Start het als ronde of vink taken direct af.')}</p>
+    <div class="stack"><button class="btn primary big" data-act="selfGo">🧭 ${t('Naar Rondes')}</button><button class="btn ghost" data-act="closeSheet">${t('OK')}</button></div>`, { selfSent: true });
+}
+const dayOf = (iso) => { const d = new Date(iso); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
+/** Stand van een eigen lijstje – uit de bestaande MARAD-afmeldingen (op/na de dag van versturen) en afgeronde rondes. */
+function selfState(s) {
+  const r = A.state.routes.find((x) => x.id === s.routeId); if (!r) return { r: null, n: 0, signed: new Map(), done: false };
+  const day = dayOf(s.at); const tasks = A.state.maint?.tasks || []; const signed = new Map(); let last = '';
+  for (const st of r.steps) {
+    const tk = st.marad?.id && tasks.find((y) => y.id === st.marad.id); const ad = tk?.appDone;
+    if (ad?.date && ad.date >= day) { const lg = (tk.doneLog || []).filter((z) => z.date === ad.date).at(-1); signed.set(st.id, { by: lg?.by || '', date: ad.date }); if (ad.date > last) last = ad.date; }
+  }
+  const run = A.state.runs.filter((x) => x.routeId === r.id && x.finishedAt && x.finishedAt >= s.at).at(-1);
+  if (run) { const d = dayOf(run.finishedAt); if (d > last) last = d; }
+  const done = !!run || (r.steps.length > 0 && signed.size >= r.steps.length);
+  return { r, n: r.steps.length, signed, done, last, day };
+}
+/** Eigen lijstjes voor het Vandaag-blok: open (ook van eerdere dagen) + vandaag afgerond. */
+function selfLists() {
+  const td = today();
+  return Object.entries(D().sent).filter(([, s]) => s.via === 'self' && s.rank === SELF).map(([k, s]) => ({ k, s, ...selfState(s) }))
+    .filter((x) => x.r && (!x.done || x.last === td)).sort((a, b) => a.done - b.done || String(a.s.at).localeCompare(String(b.s.at)));
+}
+/** Nog open eigen lijstje voor deze lijst? (weekbord: "bij Ikzelf"). */
+function selfBusy(s) { return s.via === 'self' && !selfState(s).done; }
+const shortDay = (d) => new Date(d + 'T12:00:00').toLocaleDateString(LOCALES[getLang()], { weekday: 'short', day: 'numeric', month: 'short' });
+export function selfHTML() {
+  const xs = selfLists(); const td = today();
+  let h = `<section class="selfblock"><div class="wb-head self"><h2>${t('Vandaag')}</h2><span class="wb-range">🙋 ${t('Mijn lijstjes')}</span></div>`;
+  if (!xs.length) return h + `<p class="wb-empty">${t('Nog geen eigen lijstjes. Via Taken verdelen → Stuur selectie naar… → Ikzelf zet je er een klaar.')}</p></section>`;
+  h += `<div class="wb-list">`;
+  for (const x of xs) {
+    const l = listBy(x.s.list); const nS = x.signed.size; const pct = x.n ? Math.round((nS / x.n) * 100) : 0;
+    const old = !x.done && x.day < td;
+    h += `<button class="wcard selfc ${x.done ? 'done' : ''}" data-act="selfOpen" data-k="${esc(x.k)}"><span class="wc-ic" aria-hidden="true">${x.done ? '✓' : l?.icon || '🧭'}</span>
+      <span class="wc-body"><b class="wc-name">${esc(A.tx(x.r, 'name'))}</b>
+        <span class="wc-meta">${x.n === 1 ? t('1 taak') : t('{n} taken', { n: x.n })}${nS && !x.done ? ' · ' + t('{a}/{b} afgevinkt', { a: nS, b: x.n }) : ''}${old ? ` · <span class="wc-late">${t('sinds {d}', { d: esc(shortDay(x.day)) })}</span>` : ''}</span>
+        ${x.r.note && !x.done ? `<span class="ps-note">📝 “${esc(preview(x.r.note, 60))}”</span>` : ''}${x.done ? `<span class="wc-ok">✔ ${t('Afgerond')}</span>` : ''}</span>
+      ${x.done ? '' : `<span class="wc-side"><span class="wc-count"><b class="okn">${x.n - nS}</b><small>${t('te doen')}</small></span></span>`}
+      ${!x.done && nS ? `<span class="wc-prog"><i style="width:${pct}%"></i></span>` : ''}</button>`;
+  }
+  return h + `</div></section>`;
+}
+let SO = null; // open eigen lijstje (sheet)
+function selfSheet(k) {
+  const s = D().sent[k]; if (!s) return; const x = selfState(s); if (!x.r) return; SO = k;
+  const loc = (id) => { const l = A.loc(id); return l ? A.tx(l, 'name') : t('Geen locatie'); };
+  const left = x.n - x.signed.size;
+  let h = `<h2>🙋 ${esc(A.tx(x.r, 'name'))}</h2><p class="muted small">${x.n === 1 ? t('1 taak') : t('{n} taken', { n: x.n })} · ${t('in looproute-volgorde')}${x.day < today() ? ' · ' + t('sinds {d}', { d: esc(shortDay(x.day)) }) : ''}</p>`;
+  if (x.r.note) h += `<p class="anote"><span class="an-lbl">📝 ${t('Aantekening')}</span><span class="an-t">${esc(x.r.note)}</span></p>`;
+  if (x.done) h += `<p class="okbox">✅ ${t('Afgerond')}</p>`;
+  else h += `<div class="stack"><button class="btn ok big" data-act="selfStart" data-k="${esc(k)}">${left < x.n ? t('▶ Start ronde ({n} over)', { n: left }) : t('▶ Start ronde')}</button></div>`;
+  h += `<ol class="selfsteps">`;
+  let lastLoc = null;
+  for (const st of x.r.steps) {
+    const sg = x.signed.get(st.id); const ln = loc(st.locationId);
+    if (ln !== lastLoc) { h += `<li class="ss-loc">📍 ${esc(ln)}</li>`; lastLoc = ln; }
+    h += `<li class="ss-step ${sg ? 'done' : ''}"><span class="ss-body"><b>${esc(A.tx(st, 'title'))}</b>${st.note ? `<span class="tnote">💬 ${esc(st.note)}</span>` : ''}${sg ? `<span class="tag ok sdone">✔ ${t('Afgetekend door {name}', { name: esc(sg.by || t('ik')) })}</span>` : ''}</span>
+      ${!sg && st.marad?.id && !x.done ? `<button class="dself" data-act="selfOne" data-k="${esc(k)}" data-s="${esc(st.id)}" aria-label="${t('Zelf afvinken')}" title="${t('Zelf afvinken')}">✓</button>` : ''}</li>`;
+  }
+  h += `</ol><div class="row sticky"><button class="btn ghost" data-act="closeSheet">${t('Sluiten')}</button></div>`;
+  A.openSheet(h, { self: k });
+}
+const reSelf = () => { const y = scrollY; A.render(); scrollTo(0, y); if (SO && document.querySelector('#sheet:not([hidden]) .selfsteps')) selfSheet(SO); };
+
 // ---------- zelf afvinken (v1.16) ----------
 let syncT = 0;
 /** Afmelden via de bestaande MARAD-afmelding; daarna (na de ongedaan-maken-tijd) de bemanning bijwerken. */
@@ -269,6 +354,19 @@ function selfDo(l, keys) {
   clearTimeout(syncT); syncT = setTimeout(() => A.LINK.syncDone(), 9000); // pas na de ongedaan-maken-tijd naar de bemanning
 }
 export const actions = {
+  selfGo: () => { A.closeSheet(); A.go('routes'); scrollTo(0, 0); },
+  selfOpen: (a) => selfSheet(a.dataset.k),
+  selfOne: (a) => {
+    const s = D().sent[a.dataset.k]; const r = s && A.state.routes.find((x) => x.id === s.routeId); const st = r?.steps.find((x) => x.id === a.dataset.s);
+    if (!st?.marad?.id) return; const es = A.MT.selfSignoff([st.marad.id]); if (!es.length) return;
+    reSelf();
+    A.toastAct(t('1 taak afgevinkt'), t('Ongedaan maken'), 'selfUndo', 8000, { ids: es.map((e) => e.id).join(',') });
+  },
+  selfUndo: (a) => { actions.distUndo(a); reSelf(); },
+  selfStart: (a) => {
+    const s = D().sent[a.dataset.k]; const x = s && selfState(s); if (!x?.r) return;
+    x.r.stepsDone = [...x.signed.keys()]; A.save(); A.closeSheet(); A.startRun(x.r.id); // al afgevinkt → overslaan (bestaande regel)
+  },
   distSelf: () => { const l = listBy(A.view().dist); if (l) selfDo(l, [...selOf(l)]); },
   distSelfOne: (a) => { const l = listBy(A.view().dist); if (l) selfDo(l, [a.dataset.t]); },
   distUndo: (a) => {
@@ -286,6 +384,7 @@ export const actions = {
   distSelNone: () => { const l = listBy(A.view().dist); if (!l) return; setSel(l, new Set()); A.save(); A.render(); },
   distSendSel: () => { const l = listBy(A.view().dist); if (l && selOf(l).size) pickSheet(l); },
   distSet: (a) => {
+    if (a.dataset.self) { const who = { rank: SELF, name: '' }; if (A.view().dist === '__pre' && D().pre) { Object.assign(D().pre, who); A.save(); A.closeSheet(); A.render(); return; } return startPre(who); }
     const rank = a.dataset.r || null; const name = a.dataset.n ?? ($f('#dName')?.value.trim() || ''); if (!rank) return;
     const who = { rank, name }; if (!A.LINK.pairedFor(who)) return needPair(who);
     if (A.view().dist === '__pre' && D().pre) { Object.assign(D().pre, { rank, name }); A.save(); A.closeSheet(); A.render(); return; }

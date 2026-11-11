@@ -580,3 +580,19 @@ html:has(.psubj, .ptasks) header.top h1 { font-size: 1.3rem; line-height: 1.2; }
 #toast.act[hidden] { display: none; }
 #toast .tbtn { flex: none; min-height: 44px; padding: 6px 14px; border-radius: 10px; border: 2px solid #fff; background: transparent; color: #fff; font: inherit; font-weight: 700; cursor: pointer; }
 html:has(.dfoot) #toast { bottom: calc(220px + env(safe-area-inset-bottom)); }
+/* ---------- v1.17: lijstje voor mezelf ---------- */
+.pbtn.pself { display: flex; flex-direction: row; justify-content: flex-start; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; width: 100%; margin: 4px 0 12px; border: 2px solid var(--pri); text-align: left; }
+.pbtn.pself small { flex-basis: 100%; color: var(--muted); }
+.prewho.self .pw-ic { background: var(--sup); }
+.selfblock { margin: 4px 0 18px; }
+.selfblock .wb-head { margin-top: 6px; }
+.selfblock .wb-head h2::before { background: var(--ok); }
+.selfblock .wb-empty { margin: 6px 2px; }
+.wcard.selfc .ps-note { font-size: .86rem; }
+.wc-count b.okn { color: var(--pri); }
+.selfsteps { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.selfsteps .ss-loc { margin: 10px 2px 0; font-size: .82rem; font-weight: 700; color: var(--muted); letter-spacing: .02em; }
+.selfsteps .ss-step { position: relative; display: flex; align-items: center; min-height: 56px; padding: 10px 60px 10px 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--card); }
+.selfsteps .ss-step.done { background: transparent; opacity: .8; }
+.selfsteps .ss-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.selfsteps .ss-body b { overflow-wrap: anywhere; }
