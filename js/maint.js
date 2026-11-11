@@ -59,7 +59,7 @@ export function initMaint(api) {
   $f('#fileMarad')?.addEventListener('change', async (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) readFile(f); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.id === 'mPw') { e.preventDefault(); actions.mUnlock(); } });
   if (A.legacyMaint) migrateLegacy(A.legacyMaint);
-  return { distLists, distRoute, tacticalOrder, byUrgency, rankOverview, rankRoundsHTML, view, actions, applyRun, applyPending, ensureMaint, runExtra, maradFields, persist, refreshTemplates, rankNames, templateInfo, sugCount, todayHTML, weekBoard, selfSignoff, undoSignoffs, startFixed, needsReunlock, slimDefault, weekStats };
+  return { distLists, distRoute, tacticalOrder, byUrgency, rankOverview, rankRoundsHTML, view, actions, applyRun, applyPending, ensureMaint, runExtra, maradFields, persist, refreshTemplates, rankNames, templateInfo, sugCount, todayHTML, weekBoard, selfSignoff, undoSignoffs, reopenSignoffs, undoReopen, signoffOf, startFixed, needsReunlock, slimDefault, weekStats };
 }
 const $f = (s) => document.querySelector(s);
 
@@ -822,3 +822,38 @@ export function undoSignoffs(entryIds) {
   m.signoffs = m.signoffs.filter((s) => !ids.has(s.id)); if (n) S();
   return n;
 }
+// ---------- v1.19: afgetekende taken heropenen (lijstje opnieuw sturen) ----------
+const TSNAP = ['dueDate', 'lastDone', 'lastRunHours', 'dueRunHours', 'dueInHours', 'appDone'];
+/** Afmeldingen van deze taken sinds `since` (JJJJ-MM-DD) terugdraaien, zodat ze weer open staan (weekbord, pakket,
+ *  Taken verdelen). Niets wordt hard gewist: de afmeldingen gaan met tijd, reden en door wie naar `maint.reopened`
+ *  (audit), en kunnen met undoReopen exact worden teruggezet. Geeft het audit-record terug (of null). */
+export function reopenSignoffs(taskIds, since, meta = {}) {
+  const m = M(); if (!m?.tasks) return null;
+  const ids = new Set(taskIds.filter(Boolean)); const at = new Date().toISOString(); const by = A.state.settings.userName || '';
+  const rec = { id: 'ro-' + A.rid(), at, by, reason: String(meta.reason || '').slice(0, 300), sentKey: meta.sentKey || '', to: meta.to || '', route: meta.route || '', tasks: [], entries: [], snap: {} };
+  for (const id of ids) {
+    const x = m.tasks.find((y) => y.id === id); if (!x) continue;
+    const es = m.signoffs.filter((s) => s.taskId === id && s.doneDate >= since);
+    if (!es.length) continue;
+    rec.snap[id] = JSON.parse(JSON.stringify({ ...Object.fromEntries(TSNAP.map((k) => [k, x[k] ?? null])), doneLog: x.doneLog || [] }));
+    for (const s of [...es].reverse()) undoDone(x, s); // nieuwste eerst terug
+    for (const s of es) { s.reopened = { at, by, reason: rec.reason, rec: rec.id }; rec.entries.push(s); }
+    rec.tasks.push(id);
+  }
+  rec.n = rec.tasks.length;
+  const gone = new Set(rec.entries.map((s) => s.id));
+  m.signoffs = m.signoffs.filter((s) => !gone.has(s.id));
+  (m.reopened ||= []).push(rec);
+  if (m.reopened.length > 300) m.reopened = m.reopened.slice(-300);
+  S(); return rec;
+}
+/** Heropenen ongedaan maken: afmeldingen en taakstand exact terug; het audit-record blijft staan (gemarkeerd). */
+export function undoReopen(recId) {
+  const m = M(); const rec = m?.reopened?.find((r) => r.id === recId); if (!rec || rec.undoneAt) return 0;
+  for (const [id, sn] of Object.entries(rec.snap || {})) { const x = m.tasks.find((y) => y.id === id); if (x) Object.assign(x, JSON.parse(JSON.stringify(sn))); }
+  for (const s of rec.entries) { delete s.reopened; if (!m.signoffs.some((y) => y.id === s.id)) m.signoffs.push(s); }
+  rec.undoneAt = new Date().toISOString(); S();
+  return rec.n || 0;
+}
+/** Afmelding van een taak sinds `since` (voor de keuzelijst). */
+export function signoffOf(taskId, since) { return (M()?.signoffs || []).filter((s) => s.taskId === taskId && s.doneDate >= since).at(-1) || null; }

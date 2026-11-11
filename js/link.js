@@ -19,7 +19,7 @@ let pLoaded = false;
 export function initLink(api) {
   A = api;
   self.OutboxCore?.kv.get('progress').then((v) => { if (v) { P = { seen: v.seen || {}, runs: v.runs || {} }; if (dedupeRuns()) savePg(); } pLoaded = true; if (['voortgang', 'vandaag'].includes(A.view().tab)) A.render(); }).catch(() => { pLoaded = true; });
-  return { pairView, progressView, todayBanner, actions, pollInbox, handleMgrMsg, retry, deliver, progressEvent, pairedFor, chunkItems, pairSheet, doneAfter, paired, syncDone, busyList, sentState };
+  return { pairView, progressView, todayBanner, actions, pollInbox, handleMgrMsg, retry, deliver, progressEvent, pairedFor, chunkItems, pairSheet, doneAfter, paired, syncDone, busyList, sentState, runIdsFor };
 }
 /** Voortgang per persoon + ronde: één rij (nieuwe start / opnieuw versturen werkt die rij bij i.p.v. te stapelen). */
 const pkey = (e) => String(e.dev || e.by || '?').toLowerCase() + '|' + (e.route || e.rn || '');
@@ -105,7 +105,9 @@ function pkgFor(r, c, ver) {
   return pkg;
 }
 /** Is deze opdracht na plaatsing al afgerond (rapport van de bemanning binnen)? */
-export function doneAfter(routeId, ver) { return A.state.runs.find((x) => x.routeId === routeId && x.received && x.finishedAt && new Date(x.finishedAt).getTime() >= (ver || 0)) || null; }
+export function doneAfter(routeId, ver, excl = null) { return A.state.runs.find((x) => x.routeId === routeId && x.received && x.finishedAt && new Date(x.finishedAt).getTime() >= (ver || 0) && !excl?.includes(x.id)) || null; }
+/** v1.19: alle bekende ronde-id's van een lijstje (rapporten + voortgangsrijen) – bij opnieuw sturen tellen die niet meer mee. */
+export function runIdsFor(routeId) { return [...new Set([...A.state.runs.filter((x) => x.routeId === routeId).map((x) => x.id), ...Object.values(P.runs).filter((x) => x.route === routeId).map((x) => x.run)].filter(Boolean))]; }
 export async function deliver(r, c, sentKey, { quiet = false } = {}) {
   const st = ST(); const ver = Date.now();
   r.assignee = r.assignee || c.name;
@@ -113,7 +115,7 @@ export async function deliver(r, c, sentKey, { quiet = false } = {}) {
   const items = await chunkItems(pkg, { kind: 'route', aid: r.id, ver, topic: c.inbox, server: c.inboxServer || 'https://ntfy.sh', title: `📋 ${tx(r, 'name')} · ${r.steps.length}`, by: st.userName || '' });
   const D = (A.state.dist ||= {}); D.sent ||= {};
   const s = (D.sent[sentKey] ||= {});
-  Object.assign(s, { via: 'app', aid: r.id, ver, to: c.id, toName: c.name, pubAt: new Date().toISOString(), parts: items.length, ackVer: s.ackVer && s.ackVer >= ver ? s.ackVer : 0, ackAt: s.ackVer >= ver ? s.ackAt : null });
+  Object.assign(s, { via: 'app', aid: r.id, ver, to: c.id, toName: c.name, pubAt: new Date().toISOString(), parts: items.length, ackVer: s.ackVer && s.ackVer >= ver ? s.ackVer : 0, ackAt: s.ackVer >= ver ? s.ackAt : null, pgAt: null, doneSent: 0 });
   A.save();
   await A.queueQuiet(items);
   if (!quiet) deliveredSheet(r, c, items.length);
@@ -137,7 +139,7 @@ export async function retry(force = false) {
     if (!force && Date.now() - new Date(s.pubAt).getTime() < REPUBLISH_MS) continue;
     const r = A.state.routes.find((x) => x.id === s.aid), c = A.state.contacts.find((x) => x.id === s.to);
     if (!r || !c?.inbox) continue;
-    if (doneAfter(r.id, s.ver)) continue; // al afgerond (rapport binnen) – niet opnieuw plaatsen
+    if (doneAfter(r.id, s.ver, s.reRuns)) continue; // al afgerond (rapport binnen) – niet opnieuw plaatsen
     const ver = s.ver; const pkg = pkgFor(r, c, ver);
     const items = await chunkItems(pkg, { kind: 'route', aid: r.id, ver, topic: c.inbox, server: c.inboxServer, title: `📋 ${tx(r, 'name')} · ${r.steps.length}`, by: ST().userName || '' });
     s.pubAt = new Date().toISOString(); s.tries = (s.tries || 0) + 1; A.save();
@@ -312,22 +314,32 @@ export function sentState(s) {
   if (s.via === 'self') return { st: 'self' };
   if (s.via !== 'app') return { st: 'legacy' };
   const r = A.state.routes.find((x) => x.id === s.aid); const n = r?.steps.length || s.n || 0; const ver = s.ver || 0;
-  const rows = Object.values(P.runs).filter((x) => x.route === s.aid && new Date(x.at).getTime() >= ver - 6e4).sort((a, b) => b.at.localeCompare(a.at));
-  const fin = doneAfter(s.aid, ver);
+  const ex = s.reRuns || null; // v1.19: rondes van vóór het opnieuw sturen tellen niet mee
+  const rows = Object.values(P.runs).filter((x) => x.route === s.aid && new Date(x.at).getTime() >= ver - 6e4 && !ex?.includes(x.run)).sort((a, b) => b.at.localeCompare(a.at));
+  const fin = doneAfter(s.aid, ver, ex);
   if (fin) return { st: 'done', at: fin.finishedAt, by: fin.by || s.toName, n };
   const dr = rows.find((x) => x.k === 'done'); if (dr) return { st: 'done', at: dr.at, by: dr.by || s.toName, n };
   if (r && n) { const sg = signedOf({ route: s.aid, startedAt: new Date(ver).toISOString() }); if (sg.all) return { st: 'done', at: null, by: '', n, signed: true }; }
-  const b = busyList().find((x) => x.route === s.aid && new Date(x.at).getTime() >= ver - 6e4);
+  const b = busyList().find((x) => x.route === s.aid && new Date(x.at).getTime() >= ver - 6e4 && !ex?.includes(x.run));
   if (b) return { st: 'busy', row: b, done: b.done, n };
   const last = rows[0];
   if ((s.ackVer && s.ackVer >= ver) || s.pgAt || last) return { st: 'recv', at: s.ackAt || s.pgAt || last?.at, row: last || null, done: Math.max(last?.done || 0, r ? signedOf({ route: s.aid, startedAt: new Date(ver).toISOString() }).n : 0), n };
   return { st: 'pending', n };
 }
+/** v1.19: knop "Opnieuw sturen" (of de markering "opnieuw gestuurd") onder een afgeronde ronde van een verstuurd lijstje. */
+function reopenFor(run) {
+  if (!run.routeId) return '';
+  const hit = Object.entries(A.state.dist?.sent || {}).find(([, s]) => (s.aid || s.routeId) === run.routeId && s.list && s.rank); if (!hit) return '';
+  const [k, s] = hit;
+  if (s.reRuns?.includes(run.id)) return `<p class="small prun-ro">↩ ${t('Opnieuw gestuurd {d}', { d: A.fmtDT(s.reopened?.at || s.pubAt || s.at) })}${s.reopened?.n ? ' · ' + t('{n} taken', { n: s.reopened.n }) : ''}</p>`;
+  const ok = s.via === 'self' ? !!run.finishedAt && run.finishedAt >= s.at : s.via === 'app' && sentState(s).st === 'done';
+  return ok ? `<div class="prun-act"><button class="btn small reopenbtn" data-act="distReopen" data-k="${esc(k)}">↩ ${t('Opnieuw sturen')}</button></div>` : '';
+}
 const sentRows = () => Object.entries(A.state.dist?.sent || {}).filter(([, s]) => s.list && s.rank).map(([k, s]) => ({ k, s, x: sentState(s) }));
 /** Afgeronde rondes: rapporten/eigen rondes + 'afgerond'-meldingen waarvan het rapport nog onderweg is. */
 const finished = () => {
   const rs = A.state.runs.filter((r) => r.finishedAt);
-  const extra = Object.values(P.runs).filter((x) => x.k === 'done' && !rs.some((r) => r.id === x.run)).map((x) => ({ id: x.run, routeName: x.rn, by: x.by, finishedAt: x.at, results: [], pgDone: x.done || x.n || 0, received: { via: 'voortgang' } }));
+  const extra = Object.values(P.runs).filter((x) => x.k === 'done' && !rs.some((r) => r.id === x.run)).map((x) => ({ id: x.run, routeId: x.route, routeName: x.rn, by: x.by, finishedAt: x.at, results: [], pgDone: x.done || x.n || 0, received: { via: 'voortgang' } }));
   return [...rs, ...extra];
 };
 function counts(run) { const c = { done: run.pgDone || 0, problem: 0, skipped: 0 }; for (const x of run.results || []) c[x.status] = (c[x.status] || 0) + 1; return c; }
@@ -347,7 +359,7 @@ export function progressView() {
   if (SR.length) {
     h += `<section class="card psum"><div class="ps-top"><b>📤 ${t('Verstuurde lijstjes')}: ${SR.length}</b>${nSelf ? `<small class="muted">🙋 ${t('+ {n} voor mezelf (Rondes → Vandaag)', { n: nSelf })}</small>` : ''}</div>
       <div class="ps-chips">${Object.entries(SL).filter(([k]) => cnt[k] || k !== 'legacy').map(([k, [ic, l]]) => `<span class="ps-chip st-${k}" data-st="${k}">${ic} ${l} <b>${cnt[k] || 0}</b></span>`).join('')}</div>
-      <details><summary>${t('Per lijstje')}</summary><ul class="ps-rows">${SR.sort((a, b) => ['busy', 'recv', 'pending', 'done', 'legacy'].indexOf(a.x.st) - ['busy', 'recv', 'pending', 'done', 'legacy'].indexOf(b.x.st)).map(({ s, x }) => { const r = A.state.routes.find((y) => y.id === (s.aid || s.routeId)); return `<li class="ps-row st-${x.st}"><span>${SL[x.st][0]} <b>${esc(s.toName || s.name || rankLabel(s.rank))}</b> · ${esc(r ? tx(r, 'name') : s.listName || '')}</span><small>${x.st === 'busy' || (x.st === 'recv' && x.done) ? `${x.done}/${x.n}` : t('{n} taken', { n: x.n || 0 })}</small></li>`; }).join('')}</ul></details></section>`;
+      <details><summary>${t('Per lijstje')}</summary><ul class="ps-rows">${SR.sort((a, b) => ['busy', 'recv', 'pending', 'done', 'legacy'].indexOf(a.x.st) - ['busy', 'recv', 'pending', 'done', 'legacy'].indexOf(b.x.st)).map(({ k, s, x }) => { const r = A.state.routes.find((y) => y.id === (s.aid || s.routeId)); return `<li class="ps-row st-${x.st}"><span>${SL[x.st][0]} <b>${esc(s.toName || s.name || rankLabel(s.rank))}</b> · ${esc(r ? tx(r, 'name') : s.listName || '')}</span><small>${x.st === 'busy' || (x.st === 'recv' && x.done) ? `${x.done}/${x.n}` : t('{n} taken', { n: x.n || 0 })}</small>${x.st === 'done' && r ? `<button class="btn small reopenbtn" data-act="distReopen" data-k="${esc(k)}">↩ ${t('Opnieuw sturen')}</button>` : ''}</li>`; }).join('')}</ul></details></section>`;
   }
   // bezig
   const bs = busyList();
@@ -370,9 +382,9 @@ export function progressView() {
     const nT = rs.reduce((a, r) => a + counts(r).done, 0);
     h += `<h3 class="sec pday" data-day="${k}">${k === td ? '✅ ' + t('Vandaag afgerond') : '📅 ' + esc(dayLabel(k))} (${t('{n} taken', { n: nT })})</h3><div class="list">`;
     for (const r of rs) {
-      const c = counts(r);
+      const c = counts(r); const ro = reopenFor(r);
       h += `<details class="card prun"><summary><b>${esc(r.routeName || '')}</b><small>👤 ${esc(r.by || ST().userName || '')} · 🕒 ${tm(r.finishedAt)} · <span class="okc">✔ ${c.done}</span>${c.problem ? ` · ⚠ ${c.problem}` : ''}${c.skipped ? ` · ↷ ${c.skipped}` : ''}${r.received ? '' : ' · ' + t('eigen ronde')}</small></summary>
-        <ol class="plain small">${(r.results || []).map((x) => `<li>${x.status === 'done' ? '✔' : x.status === 'problem' ? '⚠' : '↷'} ${esc(x.title || '')} <span class="muted">· ${x.at ? tm(x.at) : ''}</span></li>`).join('')}</ol></details>`;
+        <ol class="plain small">${(r.results || []).map((x) => `<li>${x.status === 'done' ? '✔' : x.status === 'problem' ? '⚠' : '↷'} ${esc(x.title || '')} <span class="muted">· ${x.at ? tm(x.at) : ''}</span></li>`).join('')}</ol></details>${ro}`;
     }
     h += '</div>';
   }

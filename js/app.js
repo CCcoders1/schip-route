@@ -11,7 +11,7 @@ import { RANK_IDS, RANK_ICON, normRank, rankLabel } from './ranks.js';
 import * as RK from './ranks.js';
 const NO_MARAD = RK.NO_MARAD || ['Bosun', 'Stagiair']; // namespace-import: geen harde fout als een oudere ranks.js in de cache staat
 
-const APP_VERSION = '1.18.0';
+const APP_VERSION = '1.19.0';
 const TEST = self.__SRTEST || {}; // alleen tests: { noSplash, noProfile }
 const OB = self.OutboxCore;
 const $ = (s, el = document) => el.querySelector(s);
@@ -666,6 +666,22 @@ async function exportRuns(runs, f, name) {
 }
 
 // ---------- ronde (run mode) ----------
+/** v1.19: opnieuw gestuurd lijstje → eerder ingevulde waarden weer invullen (eigen vorige ronde, anders wat Beheer meestuurde).
+ *  Alleen de velden; de taak zelf moet opnieuw worden afgerond. */
+function prevValues(r, rc) {
+  const key = (x) => x.marad?.id || x.titleNl || x.title || '';
+  const run = state.runs.filter((x) => x.routeId === r.id && x.finishedAt).at(-1);
+  const mine = new Map((run?.results || []).filter((x) => x.values && Object.keys(x.values).length).map((x) => [key(x), x.values]));
+  const sent = r.reopen?.vals || {}; const out = {};
+  for (const st of rc.steps) {
+    const v = mine.get(st.marad?.id || st.title) || sent[st.marad?.id || st.title]; if (!v || typeof v !== 'object') continue;
+    // "Uitgevoerd" en de MARAD-opmerking niet overnemen: die horen bij de nieuwe uitvoering (OK / Niet OK)
+    const ok = new Set((st.fields || []).filter((f) => f.role !== 'mDone' && f.role !== 'mRem').map((f) => f.id));
+    const keep = Object.fromEntries(Object.entries(v).filter(([k, x]) => ok.has(k) && x !== '' && x != null));
+    if (Object.keys(keep).length) out[st.id] = clone(keep);
+  }
+  return out;
+}
 async function startRun(id) {
   const r = route(id);
   if (!r?.steps.length) return;
@@ -682,7 +698,7 @@ async function startRun(id) {
   const locs = {};
   for (const s of r.steps) { const l = loc(s.locationId); if (l) locs[l.id] = { ...clone(l), deckName: deckName(l.deck) }; }
   const rc = clone(r); if (r.stepsDone?.length && r.stepsDone.length < r.steps.length) rc.steps = rc.steps.filter((s) => !r.stepsDone.includes(s.id)); // al afgetekend in Beheer → overslaan
-  state.activeRun = { id: 'run-' + rid(), routeId: r.id, route: rc, locs, idx: 0, results: [], values: {}, startedAt: new Date().toISOString(), by: state.settings.userName || '' };
+  state.activeRun = { id: 'run-' + rid(), routeId: r.id, route: rc, locs, idx: 0, results: [], values: r.reopen ? prevValues(r, rc) : {}, startedAt: new Date().toISOString(), by: state.settings.userName || '' };
   save(); openRun(); LINK.progressEvent('started');
 }
 async function enterRunChrome() {
@@ -1309,7 +1325,7 @@ function isForMe(r, rank) { const me = state.settings.userName; if (r.intendedNa
 function crewRouteCard(r, rank) {
   const nLoc = new Set(r.steps.map((s) => s.locationId)).size;
   const mine = isForMe(r, rank);
-  return `<article class="card route ${mine ? 'forme' : ''}"><div class="tap" data-act="openRoute" data-id="${r.id}">${mine ? `<span class="tag forme">⭐ ${t('Voor jou')} · ${esc(rankLabel(r.intendedRank || rank))}</span>` : r.intendedRank ? `<span class="tag">🎖 ${t('voor {rank}', { rank: esc(rankLabel(r.intendedRank)) })}</span>` : ''}<h2>${esc(tx(r, 'name'))}</h2><p>${plural(r.steps.length, t('taak'), t('taken'))} · ${plural(nLoc, t('locatie'), t('locaties'))}${r.from ? ` · ${t('van {name}', { name: `<b>${esc(r.from)}</b>` })}` : ''}</p>${r.description ? `<p class="muted">${esc(tx(r, 'description'))}</p>` : ''}${r.note ? noteHTML(r.note) : ''}${r.steps.some((x) => x.note) ? `<p class="small muted tncount">💬 ${t('{n} taken met een opmerking', { n: r.steps.filter((x) => x.note).length })}</p>` : ''}${r.stepsDone?.length ? `<p class="okc small">✔ ${t('{a} van {b} al afgetekend', { a: r.stepsDone.length, b: r.steps.length })}</p>` : ''}</div>
+  return `<article class="card route ${mine ? 'forme' : ''}"><div class="tap" data-act="openRoute" data-id="${r.id}">${mine ? `<span class="tag forme">⭐ ${t('Voor jou')} · ${esc(rankLabel(r.intendedRank || rank))}</span>` : r.intendedRank ? `<span class="tag">🎖 ${t('voor {rank}', { rank: esc(rankLabel(r.intendedRank)) })}</span>` : ''}<h2>${esc(tx(r, 'name'))}</h2><p>${plural(r.steps.length, t('taak'), t('taken'))} · ${plural(nLoc, t('locatie'), t('locaties'))}${r.from ? ` · ${t('van {name}', { name: `<b>${esc(r.from)}</b>` })}` : ''}</p>${r.description ? `<p class="muted">${esc(tx(r, 'description'))}</p>` : ''}${r.note ? noteHTML(r.note) : ''}${r.steps.some((x) => x.note) ? `<p class="small muted tncount">💬 ${t('{n} taken met een opmerking', { n: r.steps.filter((x) => x.note).length })}</p>` : ''}${r.stepsDone?.length ? `<p class="okc small">✔ ${t('{a} van {b} al afgetekend', { a: r.stepsDone.length, b: r.steps.length })}</p>` : ''}${r.reopen ? `<p class="small reopentag">↩ ${t('Opnieuw gestuurd – nog niet af')}</p>` : ''}</div>
       <div class="row2 crewbtns"><button class="btn big crewov" data-act="crewOverview" data-id="${r.id}" ${r.steps.length ? '' : 'disabled'}>📋 ${t('Bekijk taken ({n})', { n: r.steps.length })}</button><button class="btn ok big" data-act="startRun" data-id="${r.id}" ${r.steps.length ? '' : 'disabled'}>${runLabel(r)}</button></div></article>`;
 }
 /** Start-knop: verder met een lopende/bewaarde ronde, anders starten. */

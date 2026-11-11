@@ -628,3 +628,14 @@ html:has(.dfoot) #toast { bottom: calc(220px + env(safe-area-inset-bottom)); }
 .tasko .instr summary { cursor: pointer; font-weight: 600; min-height: 32px; display: flex; align-items: center; }
 .tasko pre { white-space: pre-wrap; font: inherit; font-size: .85rem; margin: 4px 0; max-height: 40vh; overflow: auto; }
 .run-top .runov { flex: none; }
+/* ---------- v1.19: afgerond lijstje opnieuw sturen ---------- */
+.reopenbtn { border-color: var(--pri); color: var(--pri); font-weight: 700; }
+.ps-row .reopenbtn { margin-left: auto; padding: 4px 10px; min-height: 0; }
+.ps-row { flex-wrap: wrap; }
+.prun-act { margin: -6px 0 10px; display: flex; justify-content: flex-end; }
+.prun-ro, .reopened { color: var(--muted); font-style: italic; }
+.prun-ro { margin: -6px 4px 10px; text-align: right; }
+.rotasks { display: grid; gap: 8px; margin: 8px 0 12px; }
+.rotask.off { opacity: .55; cursor: default; }
+.reopenbox { margin: 6px 0 10px; }
+.reopentag { color: #9a5b00; font-weight: 700; margin: 4px 0 0; }
