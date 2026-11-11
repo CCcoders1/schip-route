@@ -596,3 +596,35 @@ html:has(.dfoot) #toast { bottom: calc(220px + env(safe-area-inset-bottom)); }
 .selfsteps .ss-step.done { background: transparent; opacity: .8; }
 .selfsteps .ss-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .selfsteps .ss-body b { overflow-wrap: anywhere; }
+/* ---------- v1.18: Voortgang = Verstuurde lijstjes, takenoverzicht, Bosun ---------- */
+.psum { padding: 14px 16px; }
+.psum .ps-top { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 12px; }
+.ps-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 4px; }
+.ps-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 99px; border: 1px solid var(--line); background: var(--card); font-size: .86rem; color: var(--muted); }
+.ps-chip b { color: var(--fg); font-variant-numeric: tabular-nums; }
+.ps-chip.st-busy b { color: var(--ok); } .ps-chip.st-pending b { color: #a07800; }
+.psum details summary { cursor: pointer; font-weight: 600; margin-top: 6px; min-height: 36px; display: flex; align-items: center; }
+.ps-rows { list-style: none; margin: 4px 0 0; padding: 0; }
+.ps-row { display: flex; justify-content: space-between; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); font-size: .92rem; }
+.ps-row small { flex: none; color: var(--muted); font-variant-numeric: tabular-nums; }
+.precv { opacity: .95; } .precv small { display: block; color: var(--muted); margin-top: 4px; }
+.dstat.busy { color: var(--ok); font-weight: 600; }
+.sentchips { margin: 4px 0 12px; }
+.crewbtns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+.crewbtns .btn { min-height: 56px; line-height: 1.2; }
+.tasko { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.tasko .to-loc { margin: 12px 2px 0; font-weight: 700; font-size: .9rem; }
+.tasko .to-loc small { font-weight: 500; color: var(--muted); }
+.tasko .to-step { display: flex; gap: 12px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--line); border-radius: 14px; background: var(--card); }
+.tasko .to-n { flex: none; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; background: var(--sup); font-size: .85rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.tasko .to-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1; }
+.tasko .to-body b { overflow-wrap: anywhere; }
+.tasko .to-step.cur { border: 2px solid var(--pri); box-shadow: var(--wshadow); }
+.tasko .to-step.cur .to-n { background: var(--pri); color: #fff; }
+.tasko .to-now { color: var(--pri); font-weight: 700; }
+.tasko .to-step.st-done, .tasko .to-step.st-skipped { opacity: .65; }
+.tasko .to-step.st-done .to-n { background: transparent; border: 2px solid var(--ok); color: var(--ok); }
+.tasko .to-step.st-problem .to-n { background: var(--late); color: #fff; }
+.tasko .instr summary { cursor: pointer; font-weight: 600; min-height: 32px; display: flex; align-items: center; }
+.tasko pre { white-space: pre-wrap; font: inherit; font-size: .85rem; margin: 4px 0; max-height: 40vh; overflow: auto; }
+.run-top .runov { flex: none; }

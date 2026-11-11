@@ -8,8 +8,10 @@ import { initMaint } from './maint.js';
 import { shipSVG, svgPointToLoc, VIEWS } from './shipmap.js';
 import { t, tx, setTx, getLang, setLang, LANGS, LOCALES } from './i18n.js';
 import { RANK_IDS, RANK_ICON, normRank, rankLabel } from './ranks.js';
+import * as RK from './ranks.js';
+const NO_MARAD = RK.NO_MARAD || ['Bosun', 'Stagiair']; // namespace-import: geen harde fout als een oudere ranks.js in de cache staat
 
-const APP_VERSION = '1.17.0';
+const APP_VERSION = '1.18.0';
 const TEST = self.__SRTEST || {}; // alleen tests: { noSplash, noProfile }
 const OB = self.OutboxCore;
 const $ = (s, el = document) => el.querySelector(s);
@@ -667,7 +669,16 @@ async function exportRuns(runs, f, name) {
 async function startRun(id) {
   const r = route(id);
   if (!r?.steps.length) return;
-  if (state.activeRun && !confirm(t('Er loopt nog een ronde ({name}). Die afbreken en deze starten?', { name: tx(state.activeRun.route, 'name') }))) return;
+  // v1.18: niets kwijtraken – dezelfde ronde loopt al → gewoon verder; een andere lopende ronde wordt bewaard (geparkeerd)
+  if (state.activeRun?.routeId === id) return openRun();
+  const PR = (state.parkedRuns ||= {});
+  if (state.activeRun) {
+    const old = state.activeRun;
+    if (old.results?.length || old.idx) { PR[old.routeId] = old; old.pgDirty = true; LINK.progressEvent('paused', old); toast(t('Vorige ronde bewaard – je kunt er later mee verder'), 3500); }
+    else LINK.progressEvent('aborted', old);
+    state.activeRun = null;
+  }
+  if (PR[id]) { state.activeRun = PR[id]; delete PR[id]; save(); openRun(); LINK.progressEvent('started'); return; }
   const locs = {};
   for (const s of r.steps) { const l = loc(s.locationId); if (l) locs[l.id] = { ...clone(l), deckName: deckName(l.deck) }; }
   const rc = clone(r); if (r.stepsDone?.length && r.stepsDone.length < r.steps.length) rc.steps = rc.steps.filter((s) => !r.stepsDone.includes(s.id)); // al afgetekend in Beheer → overslaan
@@ -736,7 +747,7 @@ function renderRun(first = false) {
       <div class="row2"><button class="btn" data-act="newHelp">❓ ${t('Vraag')}</button><button class="btn" data-act="newObs">📷 ${t('Foto / observatie')}</button></div></div>`;
   if (isCrew()) {
     // Bemanning: alleen de route, de huidige taak groot met locatie, en OK / Niet OK / Vraag / Foto.
-    el.innerHTML = `<div class="run-top"><button class="iconbtn" data-act="runPause" aria-label="${t('Pauze')}">✕</button><div class="prog"><div style="width:${(i / total) * 100}%"></div></div>${obxBadge()}<span class="cnt">${i + 1}/${total}</span></div>
+    el.innerHTML = `<div class="run-top"><button class="iconbtn" data-act="runPause" aria-label="${t('Pauze')}">✕</button><button class="iconbtn runov" data-act="runOverview" aria-label="${t('Alle taken')}" title="${t('Alle taken')}">📋</button><div class="prog"><div style="width:${(i / total) * 100}%"></div></div>${obxBadge()}<span class="cnt">${i + 1}/${total}</span></div>
     <div class="run-body crewrun"><p class="rname">${esc(tx(ar.route, 'name'))}</p>
       <p class="bigloc">📍 ${esc(tx(l, 'name'))}</p>
       <h2 class="bigtask">${esc(tx(s, 'title'))}</h2>
@@ -750,7 +761,7 @@ function renderRun(first = false) {
     speak(t('{lead} {go} {loc}, en voer de taak uit: {task}. {instr}', { lead: '', go: same ? t('Blijf bij') : t('Loop nu naar'), loc: tx(l, 'name'), task: tx(s, 'title'), instr: tx(s, 'instruction') }));
     return;
   }
-  el.innerHTML = `<div class="run-top"><button class="iconbtn" data-act="runPause" aria-label="${t('Pauze')}">✕</button><div class="prog"><div style="width:${(i / total) * 100}%"></div></div>${obxBadge()}<span class="cnt">${i + 1}/${total}</span></div>
+  el.innerHTML = `<div class="run-top"><button class="iconbtn" data-act="runPause" aria-label="${t('Pauze')}">✕</button><button class="iconbtn runov" data-act="runOverview" aria-label="${t('Alle taken')}" title="${t('Alle taken')}">📋</button><div class="prog"><div style="width:${(i / total) * 100}%"></div></div>${obxBadge()}<span class="cnt">${i + 1}/${total}</span></div>
     <div class="run-body">
       <p class="lead">${lead}</p>
       <h2 class="goto">${same ? t('Blijf bij') : t('Loop nu naar')} <span class="locname">${esc(tx(l, 'name'))}</span></h2>
@@ -860,6 +871,8 @@ const actions = {
   importFile: () => $('#fileImport').click(),
   startRun: (a) => startRun(a.dataset.id),
   resumeRun: () => openRun(),
+  runOverview: () => { const ar = state.activeRun; if (ar) taskOverview(ar.route, ar); },
+  crewOverview: (a) => taskOverview(route(a.dataset.id)),
   abortRun: () => { if (!confirm(t('Lopende ronde afbreken? Ingevoerde gegevens gaan verloren.'))) return; LINK.progressEvent('aborted', state.activeRun); state.activeRun = null; save(); render(); },
   runPause: () => { LINK.progressEvent('paused'); closeRun(); toast(t('Ronde gepauzeerd – ga verder via Routes')); },
   runClose: () => { closeRun(); },
@@ -1297,7 +1310,12 @@ function crewRouteCard(r, rank) {
   const nLoc = new Set(r.steps.map((s) => s.locationId)).size;
   const mine = isForMe(r, rank);
   return `<article class="card route ${mine ? 'forme' : ''}"><div class="tap" data-act="openRoute" data-id="${r.id}">${mine ? `<span class="tag forme">⭐ ${t('Voor jou')} · ${esc(rankLabel(r.intendedRank || rank))}</span>` : r.intendedRank ? `<span class="tag">🎖 ${t('voor {rank}', { rank: esc(rankLabel(r.intendedRank)) })}</span>` : ''}<h2>${esc(tx(r, 'name'))}</h2><p>${plural(r.steps.length, t('taak'), t('taken'))} · ${plural(nLoc, t('locatie'), t('locaties'))}${r.from ? ` · ${t('van {name}', { name: `<b>${esc(r.from)}</b>` })}` : ''}</p>${r.description ? `<p class="muted">${esc(tx(r, 'description'))}</p>` : ''}${r.note ? noteHTML(r.note) : ''}${r.steps.some((x) => x.note) ? `<p class="small muted tncount">💬 ${t('{n} taken met een opmerking', { n: r.steps.filter((x) => x.note).length })}</p>` : ''}${r.stepsDone?.length ? `<p class="okc small">✔ ${t('{a} van {b} al afgetekend', { a: r.stepsDone.length, b: r.steps.length })}</p>` : ''}</div>
-      <div class="stack"><button class="btn ok big" data-act="startRun" data-id="${r.id}" ${r.steps.length ? '' : 'disabled'}>${t('▶ Start ronde')}</button></div></article>`;
+      <div class="row2 crewbtns"><button class="btn big crewov" data-act="crewOverview" data-id="${r.id}" ${r.steps.length ? '' : 'disabled'}>📋 ${t('Bekijk taken ({n})', { n: r.steps.length })}</button><button class="btn ok big" data-act="startRun" data-id="${r.id}" ${r.steps.length ? '' : 'disabled'}>${runLabel(r)}</button></div></article>`;
+}
+/** Start-knop: verder met een lopende/bewaarde ronde, anders starten. */
+function runLabel(r) {
+  const ar = state.activeRun?.routeId === r.id ? state.activeRun : state.parkedRuns?.[r.id];
+  return ar ? `▶ ${t('Verder ({a}/{b})', { a: Math.min(ar.idx, ar.route.steps.length), b: ar.route.steps.length })}` : t('▶ Start ronde');
 }
 // Bemanning: kale startpagina per rang (begroeting, ontvangen rondes, evt. vaste rondes, olie-knoppen).
 function viewCrewRoutes() {
@@ -1331,9 +1349,34 @@ function crewRunsHTML() {
 function noteHTML(txt, kind = 'route') {
   return `<div class="anote ${kind}"><span class="an-lbl">${kind === 'task' ? '💬 ' + t('Opmerking') : '📝 ' + t('Aantekening')}</span><span class="an-t">${esc(txt)}</span></div>`;
 }
+/** v1.18: alle taken van één (ontvangen) lijstje: per plek in looproute-volgorde, met aantekening, opmerkingen, uitleg en werkkaart.
+ *  Tijdens een ronde (ar) staat de huidige taak gemarkeerd; sluiten = terug naar precies dezelfde stap (de ronde wordt niet aangeraakt). */
+function taskOverview(r, ar = null) {
+  if (!r) return;
+  const steps = r.steps; const res = new Map((ar?.results || []).map((x) => [x.stepId, x.status])); const cur = ar ? steps[ar.idx]?.id : null;
+  const done = new Set(r.stepsDone || []);
+  const nLoc = new Set(steps.map((s) => s.locationId)).size;
+  let h = `<h2>📋 ${esc(tx(r, 'name'))}</h2><p class="muted small">${plural(steps.length, t('taak'), t('taken'))} · ${plural(nLoc, t('locatie'), t('locaties'))} · ${t('in looproute-volgorde')}${r.from ? ` · ${t('van {name}', { name: esc(r.from) })}` : ''}</p>`;
+  if (r.note) h += noteHTML(r.note);
+  if (!ar) h += `<p class="muted small ovhint">🧰 ${t('Kijk vooraf wat je nodig hebt: open bij een taak de uitleg of werkkaart.')}</p>`;
+  h += `<ol class="tasko">`; let last = null; let i = 0;
+  for (const s of steps) {
+    i++; const l = loc(s.locationId) || ar?.locs?.[s.locationId]; const ln = l ? tx(l, 'name') : '?';
+    if (s.locationId !== last) { h += `<li class="to-loc">📍 ${esc(ln)}${l?.deckName || (l && deck(l.deck)) ? ` <small>· ${esc(l.deckName || tx(deck(l.deck), 'name'))}</small>` : ''}</li>`; last = s.locationId; }
+    const st = res.get(s.id); const mark = s.id === cur ? 'cur' : st ? 'st-' + st : done.has(s.id) ? 'st-done' : '';
+    const ic = s.id === cur ? '👉' : st === 'done' || done.has(s.id) ? '✔' : st === 'problem' ? '⚠' : st === 'skipped' ? '↷' : i;
+    h += `<li class="to-step ${mark}"><span class="to-n">${ic}</span><div class="to-body"><b>${esc(tx(s, 'title'))}</b>${s.id === cur ? `<small class="to-now">${t('Hier ben je nu')}</small>` : ''}
+      ${s.marad?.comp ? `<small class="muted">🔧 ${esc(s.marad.comp)}</small>` : ''}${s.note ? noteHTML(s.note, 'task') : ''}
+      ${s.instruction ? `<details class="instr"><summary>${t('Uitleg')}</summary><p>${esc(tx(s, 'instruction'))}</p></details>` : ''}${s.workCard ? `<details class="instr"><summary>${t('📄 Werkkaart (MARAD)')}</summary><pre>${esc(s.workCard)}</pre></details>` : ''}</div></li>`;
+  }
+  h += `</ol>`;
+  h += ar ? `<div class="stack sticky"><button class="btn primary big" data-act="closeSheet">↩ ${t('Terug naar stap {n}', { n: Math.min(ar.idx + 1, steps.length) })}</button></div>`
+    : `<div class="stack"><button class="btn ok big" data-act="startRun" data-id="${r.id}">${runLabel(r)}</button>${isCrew() ? `<button class="btn danger small" data-act="crewDelRoute" data-id="${r.id}">${t('Route verwijderen van dit toestel')}</button>` : ''}</div>`;
+  openSheet(h, { overview: r.id, inRun: !!ar });
+}
 function crewRouteSheet(r) {
   if (!r) return;
-  openSheet(`<h2>${esc(tx(r, 'name'))}</h2>${r.description ? `<p class="muted">${esc(tx(r, 'description'))}</p>` : ''}${r.note ? noteHTML(r.note) : ''}<ol class="plain">${r.steps.map((s) => `<li><b>${esc(tx(s, 'title'))}</b><br><small>📍 ${esc(tx(loc(s.locationId), 'name') || '?')}</small>${s.note ? noteHTML(s.note, 'task') : ''}</li>`).join('')}</ol><div class="stack"><button class="btn ok big" data-act="startRun" data-id="${r.id}">${t('▶ Start ronde')}</button><button class="btn danger small" data-act="crewDelRoute" data-id="${r.id}">${t('Route verwijderen van dit toestel')}</button></div>`);
+  return taskOverview(r);
 }
 // ---------- profiel (naam + rang) ----------
 function greetHTML() {
@@ -1355,7 +1398,7 @@ function askProfile(then) { if (!needsProfile() || TEST.noProfile) return false;
 function renderProfile() {
   let el = $('#profile');
   if (!el) { el = document.createElement('section'); el.id = 'profile'; el.setAttribute('role', 'dialog'); el.setAttribute('aria-modal', 'true'); document.body.append(el); el.addEventListener('input', (e) => { if (e.target.id === 'pfName' && PF) PF.name = e.target.value; }); }
-  const sub = (r) => { const en = r === 'Stagiair' ? 'Trainee' : r; return en !== rankLabel(r) ? `<small>${esc(en)}</small>` : ''; };
+  const sub = (r) => { const en = r === 'Stagiair' ? 'Trainee' : r === 'Bosun' ? 'Boatswain' : r; return en !== rankLabel(r) ? `<small>${esc(en)}</small>` : ''; };
   el.innerHTML = `<div class="pf-langs" role="group" aria-label="Taal · Language · Bahasa">${Object.entries(LANGS).map(([k, v]) => `<button class="${k === getLang() ? 'on' : ''}" data-act="pfLang" data-v="${k}" lang="${k}"><span>${v.flag}</span>${esc(v.name)}</button>`).join('')}</div>
     <div class="pf-body"><h1>${PF.first ? t('Welkom aan boord') : t('Profiel')}</h1><p class="muted">${t('Vul je naam in en tik op je rang.')}</p>
     ${isIOS() && !isStandalone() ? `<p class="warnbox small">${t('Je zit in Safari. Safari en de app op je beginscherm bewaren hun gegevens apart: maak je profiel het liefst in de app vanaf je beginscherm.')}</p>` : ''}
@@ -1388,14 +1431,15 @@ function viewRanks() {
   const ov = MT.rankOverview();
   if (ov[0].rounds == null) h += `<section class="card"><p class="muted small">${t('Ontgrendel de MARAD-gegevens om per rang de vaste rondes en te-late taken te zien.')}</p><button class="btn primary" data-act="mUnlockSheet">${t('🔓 Ontgrendelen')}</button></section>`;
   h += `<div class="rankgrid ov">${ov.map((o) => `<button class="rankcard ov ${o.rank === myRank() ? 'me' : ''}" data-act="rankOpen" data-v="${esc(o.rank)}"><span class="ri">${RANK_ICON[o.rank]}</span><b>${esc(rankLabel(o.rank))}</b>
-    <small>${o.rank === 'Stagiair' ? t('geen eigen taken · ronde geven') : o.rounds == null ? '—' : plural(o.rounds, t('vaste ronde'), t('vaste rondes'))}</small>${o.overdue ? `<span class="tag red">${t('{n} te laat', { n: o.overdue })}</span>` : ''}</button>`).join('')}</div>`;
+    <small>${NO_MARAD.includes(o.rank) ? t('geen eigen taken · ronde geven') : o.rounds == null ? '—' : plural(o.rounds, t('vaste ronde'), t('vaste rondes'))}</small>${o.overdue ? `<span class="tag red">${t('{n} te laat', { n: o.overdue })}</span>` : ''}</button>`).join('')}</div>`;
   return h;
 }
 function viewRankPage(rank) {
   const ov = MT.rankOverview().find((o) => o.rank === rank) || { rounds: null, tasks: 0, overdue: 0 };
   let h = header(`${RANK_ICON[rank] || ''} ${rankLabel(rank)}`, true);
-  h += `<p class="shipsub">${rank === 'Stagiair' ? t('Stagiairs hebben geen eigen MARAD-taken.') : ov.rounds == null ? '' : t('{a} taken · {b} te laat · {c} vaste rondes', { a: ov.tasks, b: ov.overdue, c: ov.rounds })}</p>`;
+  h += `<p class="shipsub">${rank === 'Stagiair' ? t('Stagiairs hebben geen eigen MARAD-taken.') : rank === 'Bosun' ? t('De bosun heeft geen eigen MARAD-taken.') : ov.rounds == null ? '' : t('{a} taken · {b} te laat · {c} vaste rondes', { a: ov.tasks, b: ov.overdue, c: ov.rounds })}</p>`;
   if (rank === '2nd Officer') h += `<p class="muted small">ℹ️ ${t('Taken met de MARAD-functie "Junior Officer" horen hier ook bij.')}</p>`;
+  if (rank === 'Bosun') h += `<p class="infobox">⚒️ ${t('Geef de bosun een ronde: kies hieronder een vaste ronde of een eigen ronde en stuur hem naar de gekoppelde bosun. Op zijn toestel staat hij dan bovenaan.')}</p>`;
   if (rank === 'Stagiair') h += `<p class="infobox">🎓 ${t('Geef een stagiair een ronde: kies hieronder een vaste ronde of een eigen ronde en stuur hem naar de gekoppelde stagiair. Op zijn toestel staat hij dan bovenaan.')}</p>`;
   if (!state.maint?.tasks) h += `<section class="card"><button class="btn primary" data-act="mUnlockSheet">${t('🔓 Ontgrendelen')}</button></section>`;
   else h += `<h3 class="sec">📌 ${t('Vaste rondes')}</h3>` + MT.rankRoundsHTML(rank);
@@ -1420,7 +1464,7 @@ function viewCrewMore() {
 }
 
 Object.assign(actions, {
-  crewDelRoute: (a) => { if (!confirm(t('Route verwijderen?'))) return; state.routes = state.routes.filter((r) => r.id !== a.dataset.id); save(); closeSheet(); render(); },
+  crewDelRoute: (a) => { if (!confirm(t('Route verwijderen?'))) return; state.routes = state.routes.filter((r) => r.id !== a.dataset.id); if (state.parkedRuns) delete state.parkedRuns[a.dataset.id]; save(); closeSheet(); render(); },
 });
 
 // ---------- rapport: bemanning → beheer ----------

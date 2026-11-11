@@ -120,6 +120,10 @@ function sendView() {
   const sl = sentList().sort((a, b) => RANK_IDS.indexOf(a.s.rank) - RANK_IDS.indexOf(b.s.rank) || (a.s.name || '').localeCompare(b.s.name || '') || (a.s.listName || '').localeCompare(b.s.listName || ''));
   let h = A.header(t('Verstuurde lijstjes'), true) + `<p class="muted">${t('Per ronde en ontvanger één lijstje, in looproute-volgorde. Dezelfde ronde opnieuw naar dezelfde persoon sturen vervangt dat lijstje.')}</p>`;
   if (!sl.length) return h + `<p class="empty">${t('Nog niets verstuurd.')}</p>`;
+  // v1.18: dezelfde telling als Voortgang
+  const cnt = {}; for (const { s } of sl) { if (s.via === 'self') continue; const st = A.LINK.sentState(s).st; cnt[st] = (cnt[st] || 0) + 1; }
+  const SL = [['pending', '📬', t('Onderweg')], ['recv', '📥', t('Ontvangen')], ['busy', '⏳', t('Bezig')], ['done', '✅', t('Afgerond')], ['legacy', '⚪', t('Niet in de app')]];
+  h += `<div class="ps-chips sentchips">${SL.filter(([k]) => cnt[k] || k !== 'legacy').map(([k, ic, l]) => `<span class="ps-chip st-${k}" data-st="${k}">${ic} ${l} <b>${cnt[k] || 0}</b></span>`).join('')}</div>`;
   for (const { k, s, r } of sl) {
     const who = { rank: s.rank, name: s.name || '' };
     h += `<section class="card dgroup"><div class="ohead"><h3>${esc(A.tx(r, 'name'))}</h3><span class="oiltot">${t('{n} taken', { n: r.steps.length })}</span></div>
@@ -128,16 +132,18 @@ function sendView() {
       ${r.note ? `<p class="anote small"><span class="an-lbl">📝 ${t('Aantekening')}</span>${esc(r.note)}</p>` : ''}
       <details><summary>${t('Taken bekijken (looproute)')}</summary><ol class="plain small">${r.steps.map((x) => `<li>${esc(A.tx(x, 'title'))}${x.note ? `<span class="tnote">💬 ${esc(x.note)}</span>` : ''}</li>`).join('')}</ol></details>
       ${statusLine(s)}
-      ${s.via === 'self' ? `<p class="small dstat ${selfState(s).done ? 'done okc' : 'ok'}">${selfState(s).done ? '✅ ' + t('Afgerond') : '🙋 ' + t('Staat bovenaan je Rondes')}</p>` : s.via === 'app' ? (A.LINK.doneAfter(s.aid, s.ver) ? '' : `<div class="row"><button class="btn" data-act="distRedeliver" data-k="${esc(k)}">🔁 ${t('Opnieuw plaatsen')}</button></div>`) : `<p class="muted small">${t('Nog niet in de app geplaatst. Koppel deze persoon (Voortgang → Iemand koppelen) en stuur het lijstje opnieuw.')}</p>`}</section>`;
+      ${s.via === 'self' ? `<p class="small dstat ${selfState(s).done ? 'done okc' : 'ok'}">${selfState(s).done ? '✅ ' + t('Afgerond') : '🙋 ' + t('Staat bovenaan je Rondes')}</p>` : s.via === 'app' ? (A.LINK.sentState(s).st === 'done' ? '' : `<div class="row"><button class="btn" data-act="distRedeliver" data-k="${esc(k)}">🔁 ${t('Opnieuw plaatsen')}</button></div>`) : `<p class="muted small">${t('Nog niet in de app geplaatst. Koppel deze persoon (Voortgang → Iemand koppelen) en stuur het lijstje opnieuw.')}</p>`}</section>`;
   }
   return h;
 }
 
 function statusLine(s) {
   if (s.via !== 'app') return '';
-  const fin = A.LINK.doneAfter(s.aid, s.ver);
-  if (fin) return `<p class="okc small dstat done">✅ ${t('Afgerond door {name} · {d}', { name: esc(fin.by || s.toName || ''), d: A.fmtDT(fin.finishedAt) })}</p>`;
-  return s.ackVer >= s.ver ? `<p class="okc small dstat ok">✔ ${t('Ontvangen in de app van {name} · {d}', { name: esc(s.toName || ''), d: A.fmtDT(s.ackAt) })}</p>` : `<p class="small dstat wait">📬 ${t('Geplaatst {d} – wacht tot {name} online is', { d: A.fmtDT(s.pubAt), name: esc(s.toName || '') })}</p>`;
+  const x = A.LINK.sentState(s); // v1.18: zelfde stand als Voortgang
+  if (x.st === 'done') return `<p class="okc small dstat done">✅ ${x.at ? t('Afgerond door {name} · {d}', { name: esc(x.by || s.toName || ''), d: A.fmtDT(x.at) }) : t('Alle taken afgetekend')}</p>`;
+  if (x.st === 'busy') return `<p class="small dstat busy">⏳ ${t('{name} is bezig · {a}/{b}', { name: esc(s.toName || ''), a: x.done, b: x.n })}</p>`;
+  if (x.st === 'recv') return `<p class="okc small dstat ok">✔ ${t('Ontvangen in de app van {name} · {d}', { name: esc(s.toName || ''), d: A.fmtDT(x.at) })}</p>`;
+  return `<p class="small dstat wait">📬 ${t('Geplaatst {d} – wacht tot {name} online is', { d: A.fmtDT(s.pubAt), name: esc(s.toName || '') })}</p>`;
 }
 // ---------- kiezer ----------
 function pickSheet(l) {

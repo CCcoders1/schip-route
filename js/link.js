@@ -19,7 +19,7 @@ let pLoaded = false;
 export function initLink(api) {
   A = api;
   self.OutboxCore?.kv.get('progress').then((v) => { if (v) { P = { seen: v.seen || {}, runs: v.runs || {} }; if (dedupeRuns()) savePg(); } pLoaded = true; if (['voortgang', 'vandaag'].includes(A.view().tab)) A.render(); }).catch(() => { pLoaded = true; });
-  return { pairView, progressView, todayBanner, actions, pollInbox, handleMgrMsg, retry, deliver, progressEvent, pairedFor, chunkItems, pairSheet, doneAfter, paired, syncDone, busyList };
+  return { pairView, progressView, todayBanner, actions, pollInbox, handleMgrMsg, retry, deliver, progressEvent, pairedFor, chunkItems, pairSheet, doneAfter, paired, syncDone, busyList, sentState };
 }
 /** Voortgang per persoon + ronde: één rij (nieuwe start / opnieuw versturen werkt die rij bij i.p.v. te stapelen). */
 const pkey = (e) => String(e.dev || e.by || '?').toLowerCase() + '|' + (e.route || e.rn || '');
@@ -182,6 +182,8 @@ export async function handleMgrMsg(m) {
     P.seen[e.id] = 1;
     const key = pkey(e); const cur = P.runs[key] || {};
     // nieuwere gebeurtenis (of een nieuwe start van dezelfde ronde) vervangt de rij – nooit een tweede rij
+    // v1.18: elk bericht over een geplaatst lijstje telt als "ontvangen" (ook als de ontvangstbevestiging nog onderweg is)
+    for (const s_ of Object.values(A.state.dist?.sent || {})) if (s_.via === 'app' && s_.aid === e.route && new Date(e.at).getTime() >= (s_.ver || 0) - 6e4 && !(s_.pgAt >= e.at)) s_.pgAt = e.at;
     if (!cur.at || e.at >= cur.at) P.runs[key] = { run: e.run, route: e.route, rn: e.rn, by: e.by, rank: e.rank, dev: e.dev, done: e.done, n: e.n, k: e.k, at: e.at, startedAt: e.run === cur.run ? (cur.startedAt || e.st) : (e.st || e.at) };
     seen(e.dev, e.by); A.save(); savePg(); return true;
   }
@@ -227,6 +229,7 @@ function applyDone(txt) {
   if ((e.all || ids.size >= r.steps.length) && !r.doneAt) {
     r.doneAt = e.at || new Date().toISOString(); r.doneBy = 'beheer';
     const ar = A.state.activeRun; if (ar?.routeId === r.id && !ar.results?.length) A.state.activeRun = null; // nog niets ingevuld: lopende ronde is overbodig
+    const pr = A.state.parkedRuns?.[r.id]; if (pr && !pr.results?.length) delete A.state.parkedRuns[r.id];
   }
   A.save(); return r.stepsDone.length + (r.doneAt ? 1 : 0) > before;
 }
@@ -256,11 +259,12 @@ async function receive(pkg) {
 }
 
 // ---------- bemanning: voortgang ----------
-let lastPg = 0;
+let lastPg = 0, pgT = 0; const PG_MS = 20000;
 export async function progressEvent(k, arIn = null) {
   if (!A.isCrew()) return;
   const ar = arIn || A.state.activeRun; const topic = ar?.route.notifyTopic; if (!topic) return;
-  if (k === 'step' && Date.now() - lastPg < 120000) { ar.pgDirty = true; return; }
+  // v1.18: tussenstand hooguit elke 20 s, maar de laatste stand gaat altijd mee (achteraf), zodat Beheer niet op 0/x blijft staan
+  if (k === 'step' && Date.now() - lastPg < PG_MS) { ar.pgDirty = true; clearTimeout(pgT); const id = ar.id; pgT = setTimeout(() => { const cur = A.state.activeRun; if (cur?.id === id && cur.pgDirty) progressEvent('step'); }, PG_MS - (Date.now() - lastPg) + 50); return; }
   if (k === 'paused' && !ar.pgDirty) return;
   lastPg = Date.now(); ar.pgDirty = false;
   const st = ST(); const name = st.userName || '';
@@ -296,9 +300,30 @@ function closed(x) {
   return signedOf(x).all;
 }
 export function busyList() {
-  return Object.values(P.runs).filter((x) => !closed(x) && Date.now() - new Date(x.at).getTime() < 20 * 3600e3)
-    .map((x) => ({ ...x, done: Math.max(x.done || 0, signedOf(x).n) })).sort((a, b) => b.at.localeCompare(a.at));
+  const open = Object.values(P.runs).filter((x) => !closed(x) && Date.now() - new Date(x.at).getTime() < 20 * 3600e3);
+  // v1.18: één toestel heeft maar één lopende ronde – een oudere "bezig"-rij van hetzelfde toestel is onderbroken (niet bezig)
+  const top = new Map(); for (const x of open) { const d = String(x.dev || x.by || '?').toLowerCase(); if (!top.has(d) || x.at > top.get(d).at) top.set(d, x); }
+  return [...top.values()].map((x) => ({ ...x, done: Math.max(x.done || 0, signedOf(x).n) })).sort((a, b) => b.at.localeCompare(a.at));
 }
+/** v1.18: één stand per verstuurd lijstje (dist.sent), met dezelfde sleutel als Verstuurde lijstjes:
+ *  onderweg → ontvangen → bezig → afgerond. Zo tellen Voortgang en Verstuurde lijstjes altijd hetzelfde. */
+export function sentState(s) {
+  if (!s) return { st: 'none' };
+  if (s.via === 'self') return { st: 'self' };
+  if (s.via !== 'app') return { st: 'legacy' };
+  const r = A.state.routes.find((x) => x.id === s.aid); const n = r?.steps.length || s.n || 0; const ver = s.ver || 0;
+  const rows = Object.values(P.runs).filter((x) => x.route === s.aid && new Date(x.at).getTime() >= ver - 6e4).sort((a, b) => b.at.localeCompare(a.at));
+  const fin = doneAfter(s.aid, ver);
+  if (fin) return { st: 'done', at: fin.finishedAt, by: fin.by || s.toName, n };
+  const dr = rows.find((x) => x.k === 'done'); if (dr) return { st: 'done', at: dr.at, by: dr.by || s.toName, n };
+  if (r && n) { const sg = signedOf({ route: s.aid, startedAt: new Date(ver).toISOString() }); if (sg.all) return { st: 'done', at: null, by: '', n, signed: true }; }
+  const b = busyList().find((x) => x.route === s.aid && new Date(x.at).getTime() >= ver - 6e4);
+  if (b) return { st: 'busy', row: b, done: b.done, n };
+  const last = rows[0];
+  if ((s.ackVer && s.ackVer >= ver) || s.pgAt || last) return { st: 'recv', at: s.ackAt || s.pgAt || last?.at, row: last || null, done: Math.max(last?.done || 0, r ? signedOf({ route: s.aid, startedAt: new Date(ver).toISOString() }).n : 0), n };
+  return { st: 'pending', n };
+}
+const sentRows = () => Object.entries(A.state.dist?.sent || {}).filter(([, s]) => s.list && s.rank).map(([k, s]) => ({ k, s, x: sentState(s) }));
 /** Afgeronde rondes: rapporten/eigen rondes + 'afgerond'-meldingen waarvan het rapport nog onderweg is. */
 const finished = () => {
   const rs = A.state.runs.filter((r) => r.finishedAt);
@@ -314,12 +339,25 @@ export function todayBanner() {
 export function progressView() {
   let h = A.header(t('Voortgang'), true) + `<p class="muted">${t('Wie waarmee bezig is en wat er is afgerond. Komt vanzelf binnen zodra de bemanning internet heeft.')}</p>`;
   h += `<div class="row"><button class="btn" data-act="ntfyPoll">🔄 ${t('Nu ophalen')}</button><button class="btn" data-act="pairSheet">🔗 ${t('Iemand koppelen')}</button></div>`;
+  // v1.18: verstuurde lijstjes – zelfde telling als "Verstuurde lijstjes"
+  const SR = sentRows().filter((y) => y.x.st !== 'self'); const cnt = { pending: 0, recv: 0, busy: 0, done: 0, legacy: 0 };
+  for (const y of SR) cnt[y.x.st] = (cnt[y.x.st] || 0) + 1;
+  const SL = { pending: ['📬', t('Onderweg')], recv: ['📥', t('Ontvangen')], busy: ['⏳', t('Bezig')], done: ['✅', t('Afgerond')], legacy: ['⚪', t('Niet in de app')] };
+  const nSelf = sentRows().filter((y) => y.x.st === 'self').length;
+  if (SR.length) {
+    h += `<section class="card psum"><div class="ps-top"><b>📤 ${t('Verstuurde lijstjes')}: ${SR.length}</b>${nSelf ? `<small class="muted">🙋 ${t('+ {n} voor mezelf (Rondes → Vandaag)', { n: nSelf })}</small>` : ''}</div>
+      <div class="ps-chips">${Object.entries(SL).filter(([k]) => cnt[k] || k !== 'legacy').map(([k, [ic, l]]) => `<span class="ps-chip st-${k}" data-st="${k}">${ic} ${l} <b>${cnt[k] || 0}</b></span>`).join('')}</div>
+      <details><summary>${t('Per lijstje')}</summary><ul class="ps-rows">${SR.sort((a, b) => ['busy', 'recv', 'pending', 'done', 'legacy'].indexOf(a.x.st) - ['busy', 'recv', 'pending', 'done', 'legacy'].indexOf(b.x.st)).map(({ s, x }) => { const r = A.state.routes.find((y) => y.id === (s.aid || s.routeId)); return `<li class="ps-row st-${x.st}"><span>${SL[x.st][0]} <b>${esc(s.toName || s.name || rankLabel(s.rank))}</b> · ${esc(r ? tx(r, 'name') : s.listName || '')}</span><small>${x.st === 'busy' || (x.st === 'recv' && x.done) ? `${x.done}/${x.n}` : t('{n} taken', { n: x.n || 0 })}</small></li>`; }).join('')}</ul></details></section>`;
+  }
   // bezig
   const bs = busyList();
   h += `<h3 class="sec">⏳ ${t('Bezig')} (${bs.length})</h3>`;
   h += bs.length ? `<div class="list">${bs.map((x) => `<article class="card pbusy"><button class="iconbtn pclear" data-act="pgClear" data-k="${esc(pkey(x))}" aria-label="${t('Niet meer bezig')}" title="${t('Niet meer bezig')}">✕</button><b>${RANK_ICON[x.rank] || '👤'} ${esc(x.by || '?')} · ${esc(x.rn || '')} · ${x.done}/${x.n}</b><span class="pbar"><i style="width:${x.n ? Math.round((x.done / x.n) * 100) : 0}%"></i></span><small>${t('gestart {a} · bijgewerkt {b}', { a: x.startedAt ? tm(x.startedAt) : '–', b: tm(x.at) })}</small></article>`).join('')}</div>` : `<p class="empty small">${t('Niemand is nu met een ronde bezig.')}</p>`;
+  // ontvangen, (nog) niet bezig – v1.18: hoorde eerst nergens bij, daardoor klopte Voortgang niet met Verstuurde lijstjes
+  const rcv = SR.filter((y) => y.x.st === 'recv');
+  if (rcv.length) h += `<h3 class="sec">📥 ${t('Ontvangen – nog niet bezig')} (${rcv.length})</h3><div class="list">${rcv.map(({ s, x }) => { const r = A.state.routes.find((y) => y.id === s.aid); return `<article class="card precv"><b>${RANK_ICON[normRank(s.rank)] || '👤'} ${esc(s.toName || '')} · ${esc(r ? tx(r, 'name') : '')} · ${x.done ? `${x.done}/${x.n}` : t('{n} taken', { n: x.n })}</b><small>${x.row ? t('onderbroken {d}', { d: tm(x.row.at) }) : t('ontvangen {d}', { d: x.at ? tm(x.at) : '–' })}</small></article>`; }).join('')}</div>`;
   // onderweg (nog niet ontvangen)
-  const pend = Object.values(A.state.dist?.sent || {}).filter((s) => s.via === 'app' && !(s.ackVer >= s.ver) && !doneAfter(s.aid, s.ver));
+  const pend = SR.filter((y) => y.x.st === 'pending').map((y) => y.s);
   if (pend.length) h += `<h3 class="sec">📬 ${t('Onderweg')} (${pend.length})</h3><div class="list">${pend.map((s) => { const r = A.state.routes.find((x) => x.id === s.aid); return `<article class="card ppend"><b>${esc(s.toName || '')} · ${esc(r ? tx(r, 'name') : '')} · ${t('{n} taken', { n: r?.steps.length || s.n || 0 })}</b><small>${t('geplaatst {d} – wacht tot {name} online is', { d: A.fmtDT(s.pubAt), name: esc(s.toName || '') })}</small></article>`; }).join('')}</div>`;
   // afgerond per dag
   const fr = finished().sort((a, b) => b.finishedAt.localeCompare(a.finishedAt));

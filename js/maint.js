@@ -4,6 +4,8 @@ import { t, getLang, LOCALES } from './i18n.js';
 import { parseMarad, mergeMarad, autoLocation, status, dueInDays, isHours, markDone, undoDone, todayISO, parseDate } from './marad.js';
 import { suggestions, findSuggestion, rankStats, periodKey, fixedRounds } from './suggest.js';
 import { normMaint, normRank, rankLabel, rankLabels, MARAD_RANKS, RANK_IDS } from './ranks.js';
+import * as RK from './ranks.js';
+const NO_MARAD = RK.NO_MARAD || ['Bosun', 'Stagiair'];
 
 let A; // helpers uit app.js
 const F = { view: 'tree', st: 'all', loc: '', q: '' };
@@ -271,7 +273,7 @@ function rankSel() {
 const rankOk = (x, rs = rankSel()) => !rs.size || x.rank.some((r) => rs.has(r));
 function rankChips() {
   const rs = rankSel(); const my = myRank();
-  return `<div class="chips rchips" role="group" aria-label="${t('Functie')}"><button class="chip ${rs.size ? '' : 'on'}" data-act="mRankAll">${t('Alle functies')}</button>${rankStats(M()).map((r) => `<button class="chip ${rs.has(r.rank) ? 'on' : ''}" data-act="mRank" data-v="${A.esc(r.rank)}" aria-pressed="${rs.has(r.rank)}">${r.rank === my ? '⭐ ' : ''}${A.esc(rankLabel(r.rank))} <i class="cn">${r.n}</i>${r.overdue ? `<b class="cr" title="${t('Te laat')}">${r.overdue}</b>` : ''}</button>`).join('')}</div>`;
+  return `<div class="chips rchips" role="group" aria-label="${t('Functie')}"><button class="chip ${rs.size ? '' : 'on'}" data-act="mRankAll">${t('Alle functies')}</button>${rankStats(M()).map((r) => `<button class="chip ${rs.has(r.rank) ? 'on' : ''}" data-act="mRank" data-v="${A.esc(r.rank)}" aria-pressed="${rs.has(r.rank)}">${r.rank === my ? '⭐ ' : ''}${A.esc(rankLabel(r.rank))} <i class="cn">${r.n}</i>${r.overdue ? `<b class="cr" title="${t('Te laat')}">${r.overdue}</b>` : ''}</button>`).join('')}${rankStats(M()).some((r) => r.rank === 'Bosun') ? '' : `<button class="chip ${rs.has('Bosun') ? 'on' : ''}" data-act="mRank" data-v="Bosun" aria-pressed="${rs.has('Bosun')}">${'Bosun' === my ? '⭐ ' : ''}${A.esc(rankLabel('Bosun'))} <i class="cn">0</i></button>`}</div>`;
 }
 
 export function view() {
@@ -426,7 +428,7 @@ export function rankOverview() {
 export function rankRoundsHTML(rank, { crew = false } = {}) {
   const m = M(); if (!m?.tasks) return '';
   allSug();
-  const xs = (rank === 'Stagiair' ? FX.rounds : FX.rounds.filter((sg) => sg.ranks.includes(rank)))
+  const xs = (NO_MARAD.includes(rank) ? FX.rounds : FX.rounds.filter((sg) => sg.ranks.includes(rank)))
     .map((sg) => ({ sg, soon: soonOf(sg), od: sg.tasks.filter((x) => status(x) === 'overdue').length }))
     .sort((a, b) => b.od - a.od || b.soon.length - a.soon.length);
   if (!xs.length) return `<p class="muted small">${t('Geen vaste rondes voor deze rang.')}</p>`;
