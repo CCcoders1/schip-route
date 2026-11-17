@@ -11,7 +11,7 @@ import { RANK_IDS, RANK_ICON, normRank, rankLabel } from './ranks.js';
 import * as RK from './ranks.js';
 const NO_MARAD = RK.NO_MARAD || ['Bosun', 'Stagiair']; // namespace-import: geen harde fout als een oudere ranks.js in de cache staat
 
-const APP_VERSION = '1.20.0';
+const APP_VERSION = '1.21.0';
 const TEST = self.__SRTEST || {}; // alleen tests: { noSplash, noProfile }
 const OB = self.OutboxCore;
 const $ = (s, el = document) => el.querySelector(s);
@@ -58,7 +58,7 @@ function openSheet(html, ctx = {}) {
   return el;
 }
 function closeSheet() { $('#sheet').hidden = true; $('#sheet').innerHTML = ''; sheetCtx = null; draft = null; if (compose) { compose.photos.forEach((p) => URL.revokeObjectURL(p.url)); compose = null; } }
-function go(tab, extra = {}) { view = { ...view, tab, routeId: null, runId: null, placing: null, ...extra }; render(); scrollTo(0, 0); }
+function go(tab, extra = {}) { view = { ...view, tab, routeId: null, runId: null, placing: null, ...(tab === 'voortgang' ? { pgTab: 'all', pgDay: null } : {}), ...extra }; render(); scrollTo(0, 0); }
 function download(filename, content, mime) {
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([content], { type: mime }));
@@ -825,7 +825,7 @@ function renderRunDone() {
     ${c.problem || c.oor || c.skipped ? `<pre class="summary">${esc(runSummary(run))}</pre>` : `<p>${t('Alles in orde.')}</p>`}
     ${run.maradDone ? `<p class="okbox">🔧 ${t('{n} MARAD-taken afgemeld (Onderhoud → Afgemeld). Nog zelf invoeren in MARAD.', { n: run.maradDone })}</p>` : ''}
     ${autoRep ? `<p class="muted small" id="repStat">${t('Rapport wordt klaargezet…')}</p>` : ''}
-    <div class="stack">${isCrew() ? '' : `<div class="row"><button class="btn" data-act="exportRun" data-id="${run.id}" data-f="csv">${t('⬇ CSV')}</button><button class="btn" data-act="exportRun" data-id="${run.id}" data-f="json">${t('⬇ JSON')}</button></div>`}<button class="btn ghost big" data-act="runClose">${t('Sluiten')}</button></div></div>`;
+    <div class="stack">${isCrew() && rr ? `<button class="btn" data-act="doneListOpen" data-id="${esc(rr.id)}">📋 ${t('Taken bekijken · ↩ heropenen')}</button>` : ''}${isCrew() ? '' : `<div class="row"><button class="btn" data-act="exportRun" data-id="${run.id}" data-f="csv">${t('⬇ CSV')}</button><button class="btn" data-act="exportRun" data-id="${run.id}" data-f="json">${t('⬇ JSON')}</button></div>`}<button class="btn ghost big" data-act="runClose">${t('Sluiten')}</button></div></div>`;
 }
 
 // ---------- acties ----------
@@ -887,7 +887,7 @@ const actions = {
     const r = importPackage(pkg, !!a.dataset.copy); closeSheet(); toast(t('Route geïmporteerd ✔')); go('routes', isCrew() ? {} : { routeId: r.id });
     if (isCrew() && needsProfile() && !TEST.noProfile) openProfile({ first: true }); },
   importFile: () => $('#fileImport').click(),
-  startRun: (a) => startRun(a.dataset.id),
+  startRun: (a) => { if (!$('#sheet').hidden) closeSheet(); return startRun(a.dataset.id); },
   resumeRun: () => openRun(),
   runOverview: () => { const ar = state.activeRun; if (ar) taskOverview(ar.route, ar); },
   crewOverview: (a) => taskOverview(route(a.dataset.id)),
@@ -1371,7 +1371,9 @@ function noteHTML(txt, kind = 'route') {
  *  Tijdens een ronde (ar) staat de huidige taak gemarkeerd; sluiten = terug naar precies dezelfde stap (de ronde wordt niet aangeraakt). */
 function taskOverview(r, ar = null) {
   if (!r) return;
-  const steps = r.steps; const res = new Map((ar?.results || []).map((x) => [x.stepId, x.status])); const cur = ar ? steps[ar.idx]?.id : null;
+  const steps = r.steps; const fin = !ar && r.doneAt ? state.runs.find((x) => x.id === r.doneRunId) : null;
+  const res = new Map((ar?.results || fin?.results || []).map((x) => [x.stepId, x.status])); const cur = ar ? steps[ar.idx]?.id : null;
+  const canRo = isCrew() && (ar || fin); // v1.21: taak heropenen
   const done = new Set(r.stepsDone || []);
   const nLoc = new Set(steps.map((s) => s.locationId)).size;
   let h = `<h2>📋 ${esc(tx(r, 'name'))}</h2><p class="muted small">${plural(steps.length, t('taak'), t('taken'))} · ${plural(nLoc, t('locatie'), t('locaties'))} · ${t('in looproute-volgorde')}${r.from ? ` · ${t('van {name}', { name: esc(r.from) })}` : ''}</p>`;
@@ -1383,7 +1385,7 @@ function taskOverview(r, ar = null) {
     if (s.locationId !== last) { h += `<li class="to-loc">📍 ${esc(ln)}${l?.deckName || (l && deck(l.deck)) ? ` <small>· ${esc(l.deckName || tx(deck(l.deck), 'name'))}</small>` : ''}</li>`; last = s.locationId; }
     const st = res.get(s.id); const mark = s.id === cur ? 'cur' : st ? 'st-' + st : done.has(s.id) ? 'st-done' : '';
     const ic = s.id === cur ? '👉' : st === 'done' || done.has(s.id) ? '✔' : st === 'problem' ? '⚠' : st === 'skipped' ? '↷' : i;
-    h += `<li class="to-step ${mark}"><span class="to-n">${ic}</span><div class="to-body"><b>${esc(tx(s, 'title'))}</b>${s.id === cur ? `<small class="to-now">${t('Hier ben je nu')}</small>` : ''}
+    h += `<li class="to-step ${mark}"><span class="to-n">${ic}</span><div class="to-body"><b>${esc(tx(s, 'title'))}</b>${s.id === cur ? `<small class="to-now">${t('Hier ben je nu')}</small>` : ''}${canRo && st ? `<button class="btn small ghost roBtn" data-act="taskReopen" data-r="${esc(r.id)}" data-s="${esc(s.id)}">↩ ${t('Heropenen')}</button>` : ''}
       ${s.marad?.comp ? `<small class="muted">🔧 ${esc(s.marad.comp)}</small>` : ''}${s.note ? noteHTML(s.note, 'task') : ''}
       ${s.instruction ? `<details class="instr"><summary>${t('Uitleg')}</summary><p>${esc(tx(s, 'instruction'))}</p></details>` : ''}${s.workCard ? `<details class="instr"><summary>${t('📄 Werkkaart (MARAD)')}</summary><pre>${esc(s.workCard)}</pre></details>` : ''}</div></li>`;
   }
@@ -1392,6 +1394,71 @@ function taskOverview(r, ar = null) {
     : `<div class="stack"><button class="btn ok big" data-act="startRun" data-id="${r.id}">${runLabel(r)}</button>${isCrew() ? `<button class="btn danger small" data-act="crewDelRoute" data-id="${r.id}">${t('Route verwijderen van dit toestel')}</button>` : ''}</div>`;
   openSheet(h, { overview: r.id, inRun: !!ar });
 }
+// ---------- v1.21: bemanning – één taak heropenen (per ongeluk weggeklikt) ----------
+const RO_MS = 8000; let roTimer = 0;
+const noDoneVals = (v, st) => { const o = clone(v || {}); for (const f of st?.fields || []) if (f.role === 'mDone' || f.role === 'mRem' || f.type === 'check') delete o[f.id]; return o; };
+/** Zet één taak terug op "nog te doen": tijdens een ronde → die stap wordt de huidige stap; na het afronden → het lijstje
+ *  gaat weer open (bewaarde ronde, alle andere uitkomsten blijven staan). Waardes blijven als voorinvulling staan. */
+function reopenStep(r, sid) {
+  const PR = (state.parkedRuns ||= {}); const now = new Date().toISOString();
+  const ar = state.activeRun?.routeId === r.id ? state.activeRun : PR[r.id] || null;
+  if (ar?.results.some((x) => x.stepId === sid)) {
+    const steps = ar.route.steps; const j = steps.findIndex((s) => s.id === sid); if (j < 0) return null;
+    const old = ar.results.find((x) => x.stepId === sid);
+    ar.results = ar.results.filter((x) => x.stepId !== sid);
+    ar.values[sid] = noDoneVals({ ...(old?.values || {}), ...(ar.values[sid] || {}) }, steps[j]);
+    if (j < ar.idx) { const [s] = steps.splice(j, 1); ar.idx--; steps.splice(ar.idx, 0, s); }
+    return { ar, ro: { run: ar.id, nrun: ar.id, step: sid, marad: steps.find((s) => s.id === sid)?.marad?.id || null } };
+  }
+  if (ar) return null;
+  const run = state.runs.find((x) => x.id === r.doneRunId) || [...state.runs].reverse().find((x) => x.routeId === r.id && x.finishedAt);
+  const st = r.steps.find((s) => s.id === sid);
+  if (!run || !st || !run.results?.some((x) => x.stepId === sid)) return null;
+  const keep = run.results.filter((x) => x.stepId !== sid).map(clone); const ids = new Set(keep.map((x) => x.stepId));
+  const rc = clone(r); rc.steps = [...r.steps.filter((s) => ids.has(s.id)), st].map(clone);
+  const locs = {}; for (const s of rc.steps) { const l = loc(s.locationId); if (l) locs[l.id] = { ...clone(l), deckName: deckName(l.deck) }; }
+  const values = Object.fromEntries(run.results.filter((x) => x.values).map((x) => [x.stepId, clone(x.values)])); values[sid] = noDoneVals(values[sid], st);
+  const nr = { id: 'run-' + rid(), routeId: r.id, route: rc, locs, idx: rc.steps.length - 1, results: keep, values, startedAt: now, by: state.settings.userName || run.by || '', reopenOf: run.id, messages: clone(run.messages || []) };
+  (run.reopened ||= []).push({ step: sid, at: now });
+  delete r.doneAt; delete r.doneRunId;
+  if (state.activeRun) PR[r.id] = nr; else state.activeRun = nr;
+  return { ar: nr, ro: { run: run.id, nrun: nr.id, step: sid, marad: st.marad?.id || null } };
+}
+/** Na het venster voor ongedaan maken: Beheer laten weten (één voortgangsbericht met `ro`). Blijft bewaard als de app dichtgaat. */
+function commitReopen() {
+  clearTimeout(roTimer); const p = state.roPending; if (!p) return;
+  state.roPending = null; save();
+  const ar = state.activeRun?.id === p.ar ? state.activeRun : Object.values(state.parkedRuns || {}).find((x) => x.id === p.ar);
+  if (ar) LINK.reopenEvent(ar, p.ro);
+}
+if (state.roPending) setTimeout(commitReopen, 1500);
+Object.assign(actions, {
+  taskReopen: (a) => {
+    const r = route(a.dataset.r); if (!r) return; const sid = a.dataset.s;
+    if (!confirm(t('Deze taak weer openzetten? Wat je hebt ingevuld blijft staan; "Uitgevoerd" zet je straks opnieuw.'))) return;
+    if (state.roPending) commitReopen();
+    const snap = { active: clone(state.activeRun || null), parked: clone(state.parkedRuns?.[r.id] || null), doneAt: r.doneAt || null, doneRunId: r.doneRunId || null, runReo: clone(state.runs.find((x) => x.id === r.doneRunId)?.reopened || null), runId: r.doneRunId || null };
+    const x = reopenStep(r, sid); if (!x) return toast(t('Deze taak kan hier niet heropend worden.'));
+    state.roPending = { ar: x.ar.id, ro: x.ro, route: r.id, snap, due: Date.now() + RO_MS }; save();
+    roTimer = setTimeout(commitReopen, RO_MS);
+    const inRun = !$('#run').hidden && state.activeRun?.id === x.ar.id;
+    closeSheet();
+    if (inRun) renderRun(); else { render(); taskOverview(r); }
+    toastAct(t('↩ Taak heropend'), t('Ongedaan maken'), 'taskReopenUndo', RO_MS);
+  },
+  taskReopenUndo: () => {
+    const p = state.roPending; if (!p) return; clearTimeout(roTimer);
+    const r = route(p.route); const s = p.snap;
+    state.activeRun = s.active;
+    if (s.parked) (state.parkedRuns ||= {})[p.route] = s.parked; else if (state.parkedRuns) delete state.parkedRuns[p.route];
+    if (r) { if (s.doneAt) { r.doneAt = s.doneAt; r.doneRunId = s.doneRunId; } }
+    const run = s.runId && state.runs.find((x) => x.id === s.runId); if (run) { if (s.runReo) run.reopened = s.runReo; else delete run.reopened; }
+    state.roPending = null; save(); closeSheet();
+    if (!$('#run').hidden && state.activeRun) renderRun(); else render();
+    toast(t('Teruggezet'));
+  },
+  doneListOpen: (a) => { const r = route(a.dataset.id); if (r) taskOverview(r); },
+});
 function crewRouteSheet(r) {
   if (!r) return;
   return taskOverview(r);
@@ -1626,7 +1693,7 @@ async function pollNtfy(manual = false) {
     if (inbox().length > 300) state.inbox = inbox().slice(-300);
     if (nMsg) save();
     if (manual || n || nMsg) toast([n ? t('{n} nieuw(e) rapport(en) opgehaald', { n }) : '', nMsg ? t('{n} nieuwe melding(en)', { n: nMsg }) : ''].filter(Boolean).join(' · ') || (seen ? t('Geen nieuwe rapporten (al geïmporteerd)') : t('Niets nieuws in het meldingskanaal (ntfy bewaart berichten ±12 uur)')), 3500);
-    if (n || nMsg || ['historie', 'meldingen', 'vandaag', 'olie'].includes(view.tab)) render();
+    if (n || nMsg || ['historie', 'meldingen', 'vandaag', 'olie', 'voortgang'].includes(view.tab)) render();
   } catch (e) { console.warn(e); if (manual) toast(t('Ophalen lukte niet: {msg}', { msg: e.message }), 4000); }
   finally { polling = false; }
   return n;
@@ -1674,6 +1741,8 @@ function maybePoll() {
   if (isCrew()) LINK.pollInbox(false); else { pollNtfy(false).then(() => LINK.syncDone()); LINK.retry(); }
 }
 setInterval(() => { if (document.visibilityState === 'visible') maybePoll(); }, 120000);
+// v1.21: Voortgang open → elke 30 s ophalen, zodat de open tab live meeloopt (bemanning stuurt elke 20 s)
+setInterval(() => { if (document.visibilityState === 'visible' && view.tab === 'voortgang' && !isCrew() && navigator.onLine && $('#sheet').hidden) { lastPoll = Date.now(); pollNtfy(false); } }, 30000);
 Object.assign(actions, {
   goTab: (a) => { closeSheet(); go(a.dataset.v); if (a.dataset.v === 'meldingen') maybePoll(); },
   appMenu: () => appMenu(),
@@ -1691,7 +1760,7 @@ const MT = initMaint({ oilApply: (run) => OIL.applyRun(run), isCrew: () => isCre
 Object.assign(actions, MT.actions);
 const OIL = initOil({ askProfile: (fn) => askProfile(fn), state, save, rid, esc, header, openSheet, closeSheet, toast, render: () => render(), renderRun: () => renderRun(), shareFile, csvCell, fmtDT, tx, isCrew, copyText, persist: () => MT.persist(), sendRouteSheet: (r) => sendRouteSheet(r), sendOil: (ev, sum) => sendOil(ev, sum) });
 Object.assign(actions, OIL.actions);
-const LINK = initLink({ state, save, esc, header, openSheet, closeSheet, toast, render: () => render(), go: (...x) => go(...x), view: () => view, rid, fmtDT, isCrew, copyText, queueQuiet, importPackage: (p, c) => importPackage(p, c), autoImportReport: (...x) => autoImportReport(...x) });
+const LINK = initLink({ MT, state, save, esc, header, openSheet, closeSheet, toast, render: () => render(), go: (...x) => go(...x), view: () => view, rid, fmtDT, isCrew, copyText, queueQuiet, importPackage: (p, c) => importPackage(p, c), autoImportReport: (...x) => autoImportReport(...x) });
 Object.assign(actions, LINK.actions);
 const DIST = initDist({ LINK, state, save, toastAct, startRun: (id) => startRun(id), esc, header, openSheet, closeSheet, toast, render: () => render(), go: (...x) => go(...x), view: () => view, MT, rid, fmtDT, tx: (o, k) => tx(o, k), loc: (id) => loc(id) });
 Object.assign(actions, DIST.actions);
