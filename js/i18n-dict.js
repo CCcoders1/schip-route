@@ -1188,7 +1188,21 @@ export const DICT = {
 "Teruggezet": "Restored",
 "heropend door {name}": "reopened by {name}",
 "↩ Taak heropend": "↩ Task reopened",
-"↩ {name} heeft een taak heropend die al in MARAD is ingevoerd – zet hem daar ook terug.": "↩ {name} reopened a task that was already entered in MARAD – reset it there too."
+"↩ {name} heeft een taak heropend die al in MARAD is ingevoerd – zet hem daar ook terug.": "↩ {name} reopened a task that was already entered in MARAD – reset it there too.",
+"Mijn vaste rondes": "My fixed rounds",
+"Eigen lijst": "Own list",
+"Eigen lijst · {n} taken": "Own list · {n} tasks",
+"Kies eerst één of meer taken.": "Pick one or more tasks first.",
+"Kies je taken; de app maakt de looproute.": "Pick your tasks; the app makes the walking route.",
+"Kiezen": "Pick",
+"Maak route en start": "Make route and start",
+"Vaste rondes onderweg ({n} taken)": "Fixed rounds on the way ({n} tasks)",
+"Vaste rondes ontvangen ({n} taken) · {d}": "Fixed rounds received ({n} tasks) · {d}",
+"bijgewerkt {at}": "updated {at}",
+"deze maand": "this month",
+"deze week": "this week",
+"later": "later",
+"{n} MARAD-taken voor {rank}": "{n} MARAD tasks for {rank}"
 },
 "id": {
 "(Android/iPhone), tik op": "(Android/iPhone), ketuk",
@@ -2378,6 +2392,20 @@ export const DICT = {
 "Teruggezet": "Dikembalikan",
 "heropend door {name}": "dibuka lagi oleh {name}",
 "↩ Taak heropend": "↩ Tugas dibuka lagi",
-"↩ {name} heeft een taak heropend die al in MARAD is ingevoerd – zet hem daar ook terug.": "↩ {name} membuka lagi tugas yang sudah dimasukkan di MARAD – kembalikan juga di sana."
+"↩ {name} heeft een taak heropend die al in MARAD is ingevoerd – zet hem daar ook terug.": "↩ {name} membuka lagi tugas yang sudah dimasukkan di MARAD – kembalikan juga di sana.",
+"Mijn vaste rondes": "Ronde tetap saya",
+"Eigen lijst": "Daftar sendiri",
+"Eigen lijst · {n} taken": "Daftar sendiri · {n} tugas",
+"Kies eerst één of meer taken.": "Pilih dulu satu tugas atau lebih.",
+"Kies je taken; de app maakt de looproute.": "Pilih tugasmu; aplikasi membuat rute jalannya.",
+"Kiezen": "Pilih",
+"Maak route en start": "Buat rute dan mulai",
+"Vaste rondes onderweg ({n} taken)": "Ronde tetap sedang dikirim ({n} tugas)",
+"Vaste rondes ontvangen ({n} taken) · {d}": "Ronde tetap diterima ({n} tugas) · {d}",
+"bijgewerkt {at}": "diperbarui {at}",
+"deze maand": "bulan ini",
+"deze week": "minggu ini",
+"later": "nanti",
+"{n} MARAD-taken voor {rank}": "{n} tugas MARAD untuk {rank}"
 }
 };

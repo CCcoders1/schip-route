@@ -59,7 +59,7 @@ export function initMaint(api) {
   $f('#fileMarad')?.addEventListener('change', async (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) readFile(f); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.id === 'mPw') { e.preventDefault(); actions.mUnlock(); } });
   if (A.legacyMaint) migrateLegacy(A.legacyMaint);
-  return { rankChips, distLists, distRoute, tacticalOrder, byUrgency, rankOverview, rankRoundsHTML, view, actions, applyRun, applyPending, ensureMaint, runExtra, maradFields, persist, refreshTemplates, rankNames, templateInfo, sugCount, todayHTML, weekBoard, selfSignoff, undoSignoffs, reopenSignoffs, undoReopen, signoffOf, startFixed, needsReunlock, slimDefault, weekStats };
+  return { rankChips, distLists, distRoute, tacticalOrder, byUrgency, rankOverview, rankRoundsHTML, view, actions, applyRun, applyPending, ensureMaint, runExtra, maradFields, persist, refreshTemplates, rankNames, templateInfo, sugCount, todayHTML, weekBoard, selfSignoff, undoSignoffs, reopenSignoffs, undoReopen, signoffOf, startFixed, needsReunlock, slimDefault, weekStats, rankPack };
 }
 const $f = (s) => document.querySelector(s);
 
@@ -416,6 +416,23 @@ export function distRoute(items, { name, assignee = '' }) {
   }
   r.steps = tacticalOrder(r.steps, extra);
   return r;
+}
+/** v1.22: vaste rondes van één rang als pakket voor de bemanning – alleen taken die in MARAD die rang hebben
+ *  (vaste rondes in looproute-volgorde + "Overige taken" van die rang). Stap-id = 'rk-' + MARAD-id, zodat
+ *  voortgang en rapporten van eigen lijstjes in Beheer terug te vinden zijn. */
+export function rankPack(rank) {
+  const m = M(); if (!m?.tasks || !rank) return null;
+  allSug(); const has = (x) => (x.rank || []).includes(rank);
+  const claimed = new Set(FX.rounds.flatMap((sg) => sg.tasks.map((x) => x.id)));
+  const groups = FX.rounds.map((sg) => ({ key: sg.key, icon: kIcon(sg), name: sg.fixed?.name || null, period: sg.period, tasks: sg.tasks.filter(has) }));
+  groups.push({ key: REST_KEY, icon: '🗂', name: null, period: '', tasks: m.tasks.filter((x) => has(x) && !claimed.has(x.id)).sort(byDue) });
+  const rounds = [];
+  for (const g of groups.filter((y) => y.tasks.length)) {
+    const r = buildRoute(g.tasks, { name: '', strategy: slimDefault() });
+    for (const st of r.steps) { const x = g.tasks.find((y) => y.id === st.marad.id); st.id = 'rk-' + st.marad.id; st.marad.st = status(x); st.marad.last = x.lastDone || ''; }
+    rounds.push({ key: g.key, icon: g.icon, name: g.name, period: g.period, steps: r.steps });
+  }
+  return { rank, rounds };
 }
 /** Locatie "Algemeen" (alleen aangemaakt als een eigen taak geen vaste plek heeft). */
 function generalLoc() {

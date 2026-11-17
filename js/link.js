@@ -19,7 +19,7 @@ let pLoaded = false;
 export function initLink(api) {
   A = api;
   self.OutboxCore?.kv.get('progress').then((v) => { if (v) { P = { seen: v.seen || {}, runs: v.runs || {} }; if (dedupeRuns()) savePg(); } pLoaded = true; if (['voortgang', 'vandaag'].includes(A.view().tab)) A.render(); }).catch(() => { pLoaded = true; });
-  return { pairView, progressView, todayBanner, actions, pollInbox, handleMgrMsg, retry, deliver, progressEvent, pairedFor, chunkItems, pairSheet, doneAfter, paired, syncDone, busyList, sentState, runIdsFor, progressPeople, reopenEvent, progressData: () => P };
+  return { pairView, progressView, todayBanner, actions, pollInbox, handleMgrMsg, retry, deliver, progressEvent, pairedFor, chunkItems, pairSheet, doneAfter, paired, syncDone, busyList, sentState, runIdsFor, progressPeople, reopenEvent, syncRankSets, progressData: () => P };
 }
 /** Voortgang per persoon + ronde: één rij (nieuwe start / opnieuw versturen werkt die rij bij i.p.v. te stapelen). */
 const pkey = (e) => String(e.dev || e.by || '?').toLowerCase() + '|' + (e.route || e.rn || '');
@@ -176,7 +176,8 @@ export async function handleMgrMsg(m) {
   if (txt.startsWith('SRA1 ')) {
     let e; try { e = JSON.parse(txt.slice(5).split('\n')[0]); } catch { return true; }
     for (const s of Object.values(A.state.dist?.sent || {})) if (s.aid === e.a && e.v > (s.ackVer || 0)) { s.ackVer = e.v; s.ackAt = e.at || new Date().toISOString(); }
-    seen(e.dev, e.name); A.save(); return true;
+    for (const s of Object.values(A.state.dist?.rankSent || {})) if (s.aid === e.a && e.v >= (s.ver || 0)) { s.ackVer = e.v; s.ackAt = e.at || new Date().toISOString(); s.unacked = 0; } // v1.22
+    seen(e.dev, e.name); capSeen(e); A.save(); return true;
   }
   if (txt.startsWith('SRP1 ')) {
     let e; try { e = JSON.parse(txt.slice(5).split('\n')[0]); } catch { return true; }
@@ -187,8 +188,8 @@ export async function handleMgrMsg(m) {
     // v1.18: elk bericht over een geplaatst lijstje telt als "ontvangen" (ook als de ontvangstbevestiging nog onderweg is)
     for (const s_ of Object.values(A.state.dist?.sent || {})) if (s_.via === 'app' && s_.aid === e.route && new Date(e.at).getTime() >= (s_.ver || 0) - 6e4 && !(s_.pgAt >= e.at)) s_.pgAt = e.at;
     if (e.ro && typeof e.ro === 'object') crewReopen(e);
-    if (!cur.at || e.at >= cur.at) P.runs[key] = { run: e.run, route: e.route, rn: e.rn, by: e.by, rank: e.rank, dev: e.dev, done: e.done, n: e.n, k: e.k, at: e.at, startedAt: e.run === cur.run ? (cur.startedAt || e.st) : (e.st || e.at), ...(Array.isArray(e.rs) ? { rs: e.rs.slice(0, 120) } : e.run === cur.run && cur.rs ? { rs: cur.rs } : {}) };
-    seen(e.dev, e.by); A.save(); savePg(); return true;
+    if (!cur.at || e.at >= cur.at) P.runs[key] = { run: e.run, route: e.route, rn: e.rn, by: e.by, rank: e.rank, dev: e.dev, done: e.done, n: e.n, k: e.k, at: e.at, startedAt: e.run === cur.run ? (cur.startedAt || e.st) : (e.st || e.at), ...(Array.isArray(e.rs) ? { rs: e.rs.slice(0, 120) } : e.run === cur.run && cur.rs ? { rs: cur.rs } : {}), ...(Array.isArray(e.sx) ? { sx: e.sx.slice(0, 250) } : cur.sx ? { sx: cur.sx } : {}) };
+    seen(e.dev, e.by); capSeen(e); A.save(); savePg(); return true;
   }
   if (txt.startsWith('SRX1 ')) {
     const r = await takeChunk(m);
@@ -214,6 +215,7 @@ export async function pollInbox(manual = false) {
       if ((m.message || '').startsWith('SRD1 ')) { if (applyDone(m.message)) got++; continue; }
       const c = await takeChunk(m);
       if (c?.pkg?.kind === 'route' && c.pkg.asg) { if (await receive(c.pkg)) got++; }
+      else if (c?.pkg?.kind === 'rankset' && c.pkg.asg) { if (await receiveRankSet(c.pkg)) got++; } // v1.22: eigen vaste rondes (oudere versies negeren dit)
     }
     if (msgs.length) st.inboxPollId = msgs[msgs.length - 1].id;
     st.inboxPolledAt = new Date().toISOString(); A.save();
@@ -253,10 +255,68 @@ async function receive(pkg) {
       const name = st.userName || '';
       /* i18n-skip-start */
       await A.queueQuiet([{ id: 'm-' + A.rid(), kind: 'ack', createdAt: new Date().toISOString(), by: name, text: '', priority: 1, tags: ['white_check_mark'],
-        title: `✅ ${name}: ${tx(pkg.route, 'name')} ontvangen`, message: 'SRA1 ' + JSON.stringify({ a: aid, v: ver, dev: st.deviceId, name, rank: normRank(st.myRank) || '', at: new Date().toISOString() }),
+        title: `✅ ${name}: ${tx(pkg.route, 'name')} ontvangen`, message: 'SRA1 ' + JSON.stringify({ a: aid, v: ver, dev: st.deviceId, name, rank: normRank(st.myRank) || '', at: new Date().toISOString(), cap: 1 }),
         topic, server: pkg.notify.server || 'https://ntfy.sh' }]);
       /* i18n-skip-end */
     }
+  }
+  return !dup;
+}
+
+// ---------- v1.22: eigen vaste rondes (2e stuurman) ----------
+// Beheer stuurt de gekoppelde 2e stuurman één pakket met zijn eigen MARAD-taken, gegroepeerd in de vaste rondes.
+// Opnieuw sturen alleen als de takenset verandert, of hooguit elke 6 uur als vervaldatums veranderen. Oudere versies negeren het.
+export const RANKSET_RANKS = ['2nd Officer'];
+const RS_TRIES = 3;
+const hashOf = (str) => { let h = 2166136261; for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(36); };
+/** v1.22: toestel blijkt vaste rondes te kunnen ontvangen (bijgewerkt) maar heeft het pakket nog niet → bij de volgende beurt opnieuw. */
+function capSeen(e) {
+  if (!e?.cap || !e.dev) return; const c = A.state.contacts.find((x) => x.deviceId === e.dev); const s = c && A.state.dist?.rankSent?.[c.id];
+  if (s && !(s.ackVer >= s.ver) && !(Date.now() - (s.capAt || 0) < 3600e3)) { s.capAt = Date.now(); s.unacked = 0; s.pubAt = new Date(0).toISOString(); setTimeout(() => syncRankSets(false, c.id), 300); }
+}
+export async function syncRankSets(force = false, only = null) {
+  if (A.isCrew() || !navigator.onLine) return 0;
+  const cs = paired().filter((c) => RANKSET_RANKS.includes(normRank(c.func)) && (!only || c.id === only));
+  if (!cs.length) return 0;
+  await A.MT.ensureMaint?.(); if (!A.state.maint?.tasks) return 0;
+  const D = (A.state.dist ||= {}); const RS = (D.rankSent ||= {}); let n = 0;
+  for (const c of cs) {
+    const rank = normRank(c.func); const pk = A.MT.rankPack(rank); if (!pk?.rounds.length) continue;
+    const steps = pk.rounds.flatMap((r) => r.steps);
+    const ids = hashOf(c.inbox + '|' + (c.deviceId || '') + '|' + pk.rounds.map((r) => r.key + ':' + r.steps.map((x) => x.id).join(',')).join('|'));
+    const hash = hashOf(ids + steps.map((x) => (x.marad.due || '') + x.marad.st + (x.locationId || '')).join(','));
+    const s = RS[c.id]; const now = Date.now(); const since = s ? now - new Date(s.pubAt).getTime() : Infinity;
+    const quiet = s && (s.unacked || 0) >= RS_TRIES; // toestel reageert niet (oudere versie?) → alleen bij een andere takenset opnieuw
+    const send = force || !s || s.ids !== ids || (!quiet && since > REPUBLISH_MS && (s.hash !== hash || !(s.ackVer >= s.ver)));
+    if (!send) continue;
+    const resend = s && s.hash === hash && s.ids === ids; const ver = resend ? s.ver : now;
+    const pkg = routePackage(A.state, { id: 'rk-' + c.id, name: '', steps }, c.name);
+    Object.assign(pkg, { kind: 'rankset', rank, gen: new Date().toISOString(), rounds: pk.rounds, asg: { id: 'rk-' + c.id, ver, to: c.deviceId || '' } });
+    if (pkg.route?.oilRef) pkg.oilRef = pkg.route.oilRef; delete pkg.route;
+    const items = await chunkItems(pkg, { kind: 'rankset', aid: 'rk-' + c.id, ver, topic: c.inbox, server: c.inboxServer || 'https://ntfy.sh', title: `🗺 ${rankLabel(rank)} · ${steps.length}`, by: ST().userName || '' });
+    RS[c.id] = { aid: 'rk-' + c.id, to: c.id, toName: c.name, rank, ids, hash, ver, pubAt: new Date().toISOString(), parts: items.length, n: steps.length, ackVer: resend ? s.ackVer || 0 : 0, unacked: (s?.unacked || 0) + 1, capAt: s?.capAt || 0 };
+    A.save(); await A.queueQuiet(items); n++;
+  }
+  return n;
+}
+/** Bemanning: pakket met de eigen vaste rondes opslaan (vervangt het vorige; ontvangen lijstjes blijven zoals ze zijn). */
+async function receiveRankSet(pkg) {
+  const st = ST(); const { id: aid, ver } = pkg.asg; const cur = A.state.rankSet;
+  const dup = cur && cur.ver >= ver;
+  if (!dup && Array.isArray(pkg.rounds)) {
+    const locMap = A.mergePlaces(pkg);
+    for (const r of pkg.rounds) for (const x of r.steps || []) x.locationId = locMap.get(x.locationId) || x.locationId;
+    A.state.rankSet = { aid, ver, rank: normRank(pkg.rank), gen: pkg.gen || new Date().toISOString(), at: new Date().toISOString(), from: pkg.from || '', replyTo: pkg.replyTo || null, notify: pkg.notify || null, oilRef: pkg.oilRef || null, rounds: pkg.rounds };
+    A.save();
+  }
+  const AK = (st.ackSent ||= {}); const ak = aid + '@' + ver; const topic = pkg.notify?.topic;
+  if (topic && (!AK[ak] || Date.now() - AK[ak] > 3600e3)) {
+    AK[ak] = Date.now(); A.save(); const name = st.userName || '';
+    /* i18n-skip-start */
+    await A.queueQuiet([{ id: 'm-' + A.rid(), kind: 'ack', createdAt: new Date().toISOString(), by: name, text: '', priority: 1, tags: ['white_check_mark'],
+      title: `✅ ${name}: vaste rondes ontvangen`, message: 'SRA1 ' + JSON.stringify({ a: aid, v: ver, dev: st.deviceId, name, rank: normRank(st.myRank) || '', at: new Date().toISOString() }),
+      topic, server: pkg.notify.server || 'https://ntfy.sh' }]);
+    /* i18n-skip-end */
   }
   return !dup;
 }
@@ -293,11 +353,13 @@ export async function progressEvent(k, arIn = null) {
   if (k === 'paused' && !ar.pgDirty) return;
   lastPg = Date.now(); ar.pgDirty = false;
   const st = ST(); const name = st.userName || '';
-  const e = { id: 'pe-' + A.rid(), k, run: ar.id, route: ar.routeId, rn: tx(ar.route, 'name'), by: name, rank: normRank(st.myRank) || '', dev: st.deviceId, done: new Set(ar.results.map((x) => x.stepId)).size, n: ar.route.steps.length, at: new Date().toISOString(), st: ar.startedAt };
+  const e = { id: 'pe-' + A.rid(), k, run: ar.id, route: ar.routeId, rn: tx(ar.route, 'name'), by: name, rank: normRank(st.myRank) || '', dev: st.deviceId, done: new Set(ar.results.map((x) => x.stepId)).size, n: ar.route.steps.length, at: new Date().toISOString(), st: ar.startedAt, cap: 1 }; // cap: v1.22 kan vaste rondes ontvangen
   // v1.21: welke taken al gedaan zijn (compact: [stap, d/p/s, sec na start]) – oudere Beheer-versies negeren dit veld
   const t0 = new Date(ar.startedAt || e.at).getTime(); const seenS = new Set();
   e.rs = ar.results.filter((x) => x.stepId && !seenS.has(x.stepId) && seenS.add(x.stepId)).slice(-90).map((x) => [x.stepId, String(x.status || 'd')[0], Math.round((new Date(x.at || e.at).getTime() - t0) / 1000)]);
   if (ar.pgRo) { e.ro = ar.pgRo; delete ar.pgRo; } // v1.21: één taak heropend door de bemanning
+  // v1.22: eigen lijstje (uit de eigen vaste rondes) – Beheer kent die route niet; bij de start gaan de MARAD-id's mee
+  if (ar.route.own && (k === 'started' || !ar.sxSent)) { e.sx = ar.route.steps.map((x) => x.marad?.id).filter(Boolean).slice(0, 250); ar.sxSent = true; if (e.rs.length > 40) e.rs = e.rs.slice(-40); }
   /* i18n-skip-start */
   await A.queueQuiet([{ id: 'm-' + A.rid(), kind: 'voortgang', createdAt: e.at, by: name, text: '', priority: 1, tags: ['hourglass'],
     title: `⏳ ${name}: ${e.rn} ${e.done}/${e.n}`, message: 'SRP1 ' + JSON.stringify(e), topic, server: ar.route.notifyServer || 'https://ntfy.sh' }]);
@@ -424,6 +486,13 @@ function selfSt(s, r, tasks) {
   if (A.state.activeRun?.routeId === r.id || A.state.parkedRuns?.[r.id] || tasks.some((x) => x.status !== 'todo')) return 'busy';
   return 'recv';
 }
+/** v1.22: eigen lijstje van de bemanning (uit de eigen vaste rondes): route opbouwen uit de meegestuurde MARAD-id's. */
+function ownRoute(b) {
+  const tasks = A.state.maint?.tasks; if (!Array.isArray(b.sx) || !b.sx.length || !tasks) return null;
+  const byId = new Map(tasks.map((x) => [x.id, x]));
+  const steps = b.sx.map((id) => byId.get(id)).filter(Boolean).map((x) => ({ id: 'rk-' + x.id, title: x.name, locationId: locOf(x.locId) ? x.locId : null, marad: { id: x.id } }));
+  return steps.length ? { id: b.route, name: b.rn || '', steps, own: true } : null;
+}
 /** Model voor één dag: personen met hun lijstjes en taken. Zelfde lijstjes als "Verstuurde lijstjes" (dist.sent). */
 export function progressPeople(day) {
   day = day || todayKey(); const td = todayKey(); const me = ST().userName || '';
@@ -457,7 +526,7 @@ export function progressPeople(day) {
   }
   // bezig met een ronde die niet via Taken verdelen kwam
   for (const b of busyList().filter((x) => !routeIds.has(x.route) && day === td)) {
-    const p = P_(pidOf(b.by), b.by || '?', b.rank); const r = A.state.routes.find((x) => x.id === b.route);
+    const p = P_(pidOf(b.by), b.by || '?', b.rank); const r = A.state.routes.find((x) => x.id === b.route) || ownRoute(b);
     p.lists.push({ k: 'busy:' + pkey(b), s: null, r, name: b.rn || '', st: 'busy', n: b.n || 0, done: b.done || 0, tasks: r ? stepStates(r, b.startedAt || b.at) : [], at: b.at, note: '', row: b });
   }
   // zelf afgevinkt (Beheer) zonder lijstje
@@ -559,11 +628,16 @@ export function progressView() {
   const ps = paired().sort((a, b) => RANK_IDS.indexOf(normRank(a.func)) - RANK_IDS.indexOf(normRank(b.func)));
   const busyKeys = new Set(people.map((p) => p.key));
   h += `<details class="ppaired"><summary>👥 ${t('Gekoppelde mensen')} (${ps.length})${ps.some((c) => !busyKeys.has(pidOf(c.name, c.func))) ? ' · ' + t('{n} zonder taken', { n: ps.filter((c) => !busyKeys.has(pidOf(c.name, c.func))).length }) : ''}</summary>`;
-  h += ps.length ? `<div class="list">${ps.map((c) => `<article class="card pperson"><b>${RANK_ICON[normRank(c.func)] || '👤'} ${esc(c.name)}</b><small>${esc(rankLabel(normRank(c.func)))} · ${c.lastSeen ? t('laatst gezien {d}', { d: A.fmtDT(c.lastSeen) }) : t('nog niet gezien')}</small></article>`).join('')}</div>` : `<p class="muted small">${t('Nog niemand gekoppeld. Vraag iemand in zijn app: Meer → Koppelen met Beheer, en plak de code hier.')}</p>`;
+  h += ps.length ? `<div class="list">${ps.map((c) => `<article class="card pperson"><b>${RANK_ICON[normRank(c.func)] || '👤'} ${esc(c.name)}</b><small>${esc(rankLabel(normRank(c.func)))} · ${c.lastSeen ? t('laatst gezien {d}', { d: A.fmtDT(c.lastSeen) }) : t('nog niet gezien')}</small>${rsLine(c)}</article>`).join('')}</div>` : `<p class="muted small">${t('Nog niemand gekoppeld. Vraag iemand in zijn app: Meer → Koppelen met Beheer, en plak de code hier.')}</p>`;
   h += '</details>';
   // v1.20: volledige stand als bestand (voor eigen analyse / privé delen)
   h += `<div class="stack xport"><button class="btn" data-act="stateExport">📦 ${t('Stand exporteren')}</button><small class="muted">${t('Alle gegevens in één bestand (zonder kanalen of codes). Alleen privé delen.')}</small></div>`;
   return h;
+}
+/** v1.22: stand van de eigen vaste rondes bij een gekoppelde 2e stuurman (één regel). */
+function rsLine(c) {
+  const s = A.state.dist?.rankSent?.[c.id]; if (!s) return '';
+  return `<small class="rsline">🗺 ${s.ackVer >= s.ver ? t('Vaste rondes ontvangen ({n} taken) · {d}', { n: s.n, d: A.fmtDT(s.ackAt) }) : t('Vaste rondes onderweg ({n} taken)', { n: s.n })}</small>`;
 }
 export function pairSheet() {
   A.openSheet(`<h2>🔗 ${t('Iemand koppelen')}</h2><p class="muted">${t('Laat de ander in zijn app openen: Meer → Koppelen met Beheer → Kopieer koppelcode. Plak die code hier. Eén keer koppelen is genoeg; daarna komen lijstjes zonder WhatsApp in zijn app.')}</p>
@@ -598,7 +672,7 @@ export const actions = {
   pairDo: () => {
     const o = parsePairCode(document.querySelector('#pairIn')?.value);
     if (!o) return A.toast(t('Dat is geen geldige koppelcode.'), 3500);
-    const c = addPaired(o); A.closeSheet(); A.render();
+    const c = addPaired(o); A.closeSheet(); A.render(); syncRankSets(true, c.id).then((n) => n && A.render()); // v1.22: opnieuw koppelen = vaste rondes opnieuw sturen
     A.toast(t('{name} gekoppeld ✔', { name: c.name }), 3500);
   },
   pairCopy: () => { A.copyText(pairCode()); toCrew(); },
