@@ -11,7 +11,7 @@ import { RANK_IDS, RANK_ICON, normRank, rankLabel } from './ranks.js';
 import * as RK from './ranks.js';
 const NO_MARAD = RK.NO_MARAD || ['Bosun', 'Stagiair']; // namespace-import: geen harde fout als een oudere ranks.js in de cache staat
 
-const APP_VERSION = '1.22.0';
+const APP_VERSION = '1.23.0';
 const TEST = self.__SRTEST || {}; // alleen tests: { noSplash, noProfile }
 const OB = self.OutboxCore;
 const $ = (s, el = document) => el.querySelector(s);
@@ -23,7 +23,7 @@ const fmtDT = (iso) => iso ? new Date(iso).toLocaleString(LOCALES[getLang()], { 
 const plural = (n, a, b) => `${n} ${n === 1 ? a : b}`;
 // Modus: 'beheer' (manager: alles) of 'bemanning' (crew: ontvangen routes, ronde, vragen, observaties, outbox).
 const isCrew = () => state.settings.mode === 'bemanning';
-const CREW_TABS = ['routes', 'meer', 'koppelen'];
+const CREW_TABS = ['routes', 'meer', 'koppelen', 'cmarad'];
 const myRank = () => normRank(state.settings.myRank) || 'Engineer';
 const needsProfile = () => !String(state.settings.userName || '').trim();
 const BEHEER_TABS = ['vandaag', 'onderhoud', 'olie', 'routes', 'meldingen'];
@@ -121,7 +121,7 @@ function render() {
   const fn = {
     vandaag: viewToday, meldingen: viewMeldingen, olie: () => OIL.view(), rangen: viewRanks, verdelen: () => DIST.view(), voortgang: () => LINK.progressView(), koppelen: () => LINK.pairView(),
     routes: isCrew() ? viewCrewRoutes : view.routeId ? viewRoute : viewRoutes,
-    onderhoud: MT.view,
+    onderhoud: MT.view, cmarad: () => MT.crewView(),
     kaart: viewMap, locaties: viewLocations,
     historie: view.runId ? viewRunDetail : viewHistory, meer: isCrew() ? viewCrewMore : viewMore,
   }[view.tab];
@@ -849,7 +849,7 @@ const actions = {
   pfCancel: () => { closeProfile(); PF = null; },
   iosContinue: () => { const nx = sheetCtx?.next; closeSheet(); nx?.(); },
   setLang: (a) => { const L = a.dataset.v; if (L === getLang()) return closeSheet(); state.settings.lang = L; save(); setLang(L); location.reload(); },
-  closeSheet, back: () => (view.tab === 'voortgang' ? go('vandaag') : view.tab === 'koppelen' ? go(isCrew() ? 'meer' : 'vandaag') : view.tab === 'verdelen' ? (DIST.back() || (view.dist ? go('verdelen', { dist: null }) : go('vandaag'))) : view.tab === 'rangen' ? (view.rank ? go('rangen', { rank: null }) : go('vandaag')) : go(view.tab)),
+  closeSheet, back: () => (view.tab === 'voortgang' ? go('vandaag') : view.tab === 'koppelen' ? go(isCrew() ? 'meer' : 'vandaag') : view.tab === 'cmarad' ? go('routes') : view.tab === 'verdelen' ? (DIST.back() || (view.dist ? go('verdelen', { dist: null }) : go('vandaag'))) : view.tab === 'rangen' ? (view.rank ? go('rangen', { rank: null }) : go('vandaag')) : go(view.tab)),
   install: async () => { if (!deferredInstall) return; deferredInstall.prompt(); await deferredInstall.userChoice; deferredInstall = null; render(); },
   hideInstall: () => { state.settings.hideInstall = true; save(); render(); },
   showInstall: () => { state.settings.hideInstall = false; save(); go('routes'); },
@@ -1343,10 +1343,8 @@ function runLabel(r) {
 // ---------- v1.22: eigen vaste rondes (2e stuurman) ----------
 // Beheer stuurt de eigen MARAD-taken van deze rang, gegroepeerd in de vaste rondes. Zelf een ronde starten of zelf taken
 // kiezen maakt een eigen lijstje (zelfde rapport, voortgang en heropenen als een ontvangen lijstje).
-const RK_WIN = { week: 7, '2w': 14, month: 31 };
 const dayISO = (d = new Date()) => new Date(d.getTime() - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
 const rkName = (g) => (g.key === 'fx-overig' ? t('Overige taken') : g.name?.[getLang()] || g.name?.nl || g.key);
-const rkPer = (g) => (g.key === 'fx-overig' ? t('niet in een vaste ronde') : g.period === 'month' ? t('maandelijks') : g.period === '2w' ? t('elke 2 weken') : t('wekelijks'));
 /** MARAD-id → laatste dag dat ik de taak zelf deed (ook als Beheer dat nog niet in het pakket verwerkt heeft). */
 function rkDone() {
   const out = new Map(); if (!state.rankSet) return out;
@@ -1361,25 +1359,14 @@ function rkSt(st, done, today) {
   const d = Math.round((new Date(due + 'T12:00:00') - new Date(today + 'T12:00:00')) / 864e5);
   return d < 0 ? 'overdue' : d <= 7 ? 'week' : d <= 31 ? 'month' : 'later';
 }
-function rkRounds() {
-  const rs = state.rankSet; if (!rs?.rounds?.length) return [];
-  const done = rkDone(), today = dayISO();
-  return rs.rounds.map((g) => {
-    const xs = g.steps.map((st) => ({ st, s: rkSt(st, done, today) }));
-    const od = xs.filter((x) => x.s === 'overdue'), soon = xs.filter((x) => x.s === 'overdue' || x.s === 'week');
-    const win = RK_WIN[g.period] || 0;
-    const due = soon.length ? soon : win ? xs.filter((x) => x.st.marad?.due && x.s !== 'done' && (new Date(x.st.marad.due) - new Date(today)) / 864e5 <= win) : [];
-    return { g, xs, od: od.length, soon: soon.length, due: due.map((x) => x.st), done: xs.filter((x) => x.s === 'done').length };
-  }).sort((a, b) => b.od - a.od || b.soon - a.soon);
-}
-function rankRoundsCard() {
-  const rs = state.rankSet; const rr = rkRounds(); if (!rr.length) return '';
-  const n = rr.reduce((a, x) => a + x.xs.length, 0);
-  return `<section class="rkset"><div class="rkhead"><h2>${RANK_ICON[rs.rank] || '🗺'} ${t('Mijn vaste rondes')}</h2><button class="btn primary" data-act="rkPick">✏️ ${t('Eigen lijst')}</button></div>
-    <p class="muted small">${t('{n} MARAD-taken voor {rank}', { n, rank: esc(rankLabel(rs.rank)) })} · ${t('bijgewerkt {at}', { at: fmtDT(rs.gen) })}</p>
-    <div class="list">${rr.map(({ g, xs, od, soon, due, done }) => `<article class="card today k-fixed ${od ? 'has-od' : ''}" data-k="${esc(g.key)}"><div class="thead"><h3>${esc(g.icon || '📌')} ${esc(rkName(g))}</h3><p class="muted small">${rkPer(g)}</p></div>
-      <p class="tcounts">${od ? `<span class="tag red">${t('{n} te laat', { n: od })}</span> ` : ''}<span class="tag orange">${t('{n} deze week', { n: Math.max(0, soon - od) })}</span>${done ? ` <span class="tag ok">✔ ${done}</span>` : ''} <small class="muted">${t('van {n} taken', { n: xs.length })}</small></p>
-      <div class="row2 crewbtns"><button class="btn big crewov" data-act="rkPick" data-k="${esc(g.key)}">✏️ ${t('Kiezen')}</button><button class="btn ok big" data-act="rkStart" data-k="${esc(g.key)}" ${due.length ? '' : 'disabled'}>${t('▶ Start ronde')} <small>(${due.length})</small></button></div></article>`).join('')}</div></section>`;
+/** v1.23: ingang naar het MARAD-scherm (vervangt de kaart "Mijn vaste rondes" van v1.22). */
+function maradEntryCard() {
+  const rs = state.rankSet; if (!rs?.rounds?.length) return '';
+  const done = rkDone(), today = dayISO(); const c = { overdue: 0, week: 0, n: 0 };
+  for (const g of rs.rounds) for (const st of g.steps || []) { c.n++; const x = rkSt(st, done, today); if (c[x] != null) c[x]++; }
+  return `<section class="card cmentry"><h2>🔧 ${t('MARAD')} <small class="muted">· ${esc(rankLabel(rs.rank))}</small></h2>
+    <p class="tcounts">${c.overdue ? `<span class="tag red">${t('{n} te laat', { n: c.overdue })}</span> ` : ''}<span class="tag orange">${t('{n} deze week', { n: c.week })}</span> <small class="muted">${t('van {n} taken', { n: c.n })}</small></p>
+    <button class="btn primary big" data-act="goCmarad">🔧 ${t('Open MARAD')}</button><p class="muted small">${t('Vink aan wat je gaat doen en tik op Maak lijst.')}</p></section>`;
 }
 /** Eigen lijstje maken (ontvangen-lijstje-vorm: rapport en voortgang gaan naar Beheer). */
 function rkRoute(steps, name, key = '') {
@@ -1390,29 +1377,13 @@ function rkRoute(steps, name, key = '') {
   if (rs.replyTo) r.replyTo = clone(rs.replyTo); if (rs.oilRef) r.oilRef = clone(rs.oilRef);
   state.routes.push(r); save(); return r;
 }
-function rkPickSheet(key = '') {
-  const rr = rkRounds().filter((x) => !key || x.g.key === key); if (!rr.length) return;
-  const lbl = { overdue: t('te laat'), week: t('deze week'), month: t('deze maand'), later: t('later'), none: '', done: '✔' };
-  openSheet(`<h2>✏️ ${t('Eigen lijst')}</h2><p class="muted small">${t('Kies je taken; de app maakt de looproute.')}</p>
-    <div class="rkpick">${rr.map(({ g, xs, soon }) => `<details class="card" ${key || soon ? 'open' : ''}><summary>${esc(g.icon || '📌')} ${esc(rkName(g))} <small class="muted">(${xs.length})</small></summary><ul class="rklist">${xs.map(({ st, s }) => `<li class="rk-${s}"><label><input type="checkbox" name="rk" value="${esc(st.id)}" ${s === 'done' ? 'disabled' : ''}><span><b>${esc(tx(st, 'title'))}</b><small>${[lbl[s] ? `<span class="tag ${s === 'overdue' ? 'red' : s === 'week' ? 'orange' : s === 'done' ? 'ok' : ''}">${lbl[s]}</span>` : '', st.marad?.due ? '📅 ' + esc(st.marad.due) : '', esc(tx(loc(st.locationId) || {}, 'name') || '')].filter(Boolean).join(' ')}</small></span></label></li>`).join('')}</ul></details>`).join('')}</div>
-    <div class="stack sticky"><button class="btn ok big" data-act="rkPickGo" data-k="${esc(key)}">▶ ${t('Maak route en start')}</button><button class="btn ghost" data-act="closeSheet">${t('Annuleren')}</button></div>`);
+/** v1.23: selectie uit het MARAD-scherm → eigen lijstje en meteen starten. */
+function rkMakeList(steps, round = null) {
+  if (!steps?.length || !state.rankSet) return;
+  const name = (round ? rkName(round) : t('Eigen lijst')) + ' · ' + new Date().toLocaleDateString(LOCALES[getLang()], { day: 'numeric', month: 'short' });
+  const r = rkRoute(steps, name, round?.key || ''); view = { ...view, tab: 'routes' }; render(); startRun(r.id);
 }
-Object.assign(actions, {
-  rkStart: (a) => {
-    const x = rkRounds().find((y) => y.g.key === a.dataset.k); if (!x?.due.length) return;
-    const open = state.routes.find((r) => r.own && r.rankRound === x.g.key && !r.doneAt); // zelfde ronde staat al open → daarmee verder
-    startRun((open || rkRoute(x.due, rkName(x.g), x.g.key)).id);
-  },
-  rkPick: (a) => rkPickSheet(a.dataset.k || ''),
-  rkPickGo: (a) => {
-    const ids = new Set([...document.querySelectorAll('#sheet input[name=rk]:checked')].map((el) => el.value));
-    if (!ids.size) return toast(t('Kies eerst één of meer taken.'));
-    const steps = (state.rankSet?.rounds || []).flatMap((g) => g.steps).filter((st) => ids.has(st.id));
-    const g = a.dataset.k ? state.rankSet.rounds.find((y) => y.key === a.dataset.k) : null;
-    const name = (g ? rkName(g) : t('Eigen lijst')) + ' · ' + new Date().toLocaleDateString(LOCALES[getLang()], { day: 'numeric', month: 'short' });
-    closeSheet(); startRun(rkRoute(steps, name).id);
-  },
-});
+Object.assign(actions, { goCmarad: () => go('cmarad') });
 // Bemanning: kale startpagina per rang (begroeting, ontvangen rondes, evt. vaste rondes, olie-knoppen).
 function viewCrewRoutes() {
   const rank = myRank(), name = String(state.settings.userName || '').trim(), trainee = rank === 'Stagiair';
@@ -1429,12 +1400,12 @@ function viewCrewRoutes() {
   if (!forMe.length && doneR.length) h += `<div class="emptystate alldone"><p class="big">✅</p><p><b>${t('Alles afgerond.')}</b></p><p class="muted">${t('Lijstjes van Beheer verschijnen hier vanzelf.')}</p></div>`;
   else if (!forMe.length && !state.rankSet?.rounds?.length) h += `<div class="emptystate"><p class="big">📭</p><p><b>${t('Nog geen ronde ontvangen.')}</b></p><p class="muted">${t('Lijstjes van Beheer verschijnen hier vanzelf.')}</p>${state.settings.inboxLastAt ? '' : `<button class="btn primary big" data-act="goPair">🔗 ${t('Koppelen met Beheer')}</button><p class="muted small">${t('Na koppelen komen lijstjes vanzelf in je app – zonder WhatsApp.')}</p>`}</div>`;
   h += forMe.map((r) => crewRouteCard(r, rank)).join('') + `</div>`;
-  h += rankRoundsCard(); // v1.22: eigen vaste rondes (alleen als Beheer ze voor deze rang stuurt)
+  h += maradEntryCard(); // v1.23: eigen MARAD-taken (alleen als Beheer ze voor deze rang stuurt)
   if (trainee) h += `<p class="infobox">🎓 ${t('Je begeleider plaatst rondes direct in je app; ze verschijnen dan hier.')}</p>`;
   if (doneR.length) h += `<details class="card crewdone"><summary>✅ ${t('Afgerond ({n})', { n: doneR.length })}</summary><ul class="locs">${doneR.slice(0, 20).map((r) => `<li data-act="openRoute" data-id="${r.id}"><span>✔ ${esc(tx(r, 'name'))}</span><small>${fmtDT(r.doneAt)}</small></li>`).join('')}</ul></details>`;
   if (other.length) h += `<details class="card otherranks"><summary>${t('Voor andere rangen ({n})', { n: other.length })}</summary><div class="list">${other.map((r) => crewRouteCard(r, rank)).join('')}</div></details>`;
   // v1.10: bemanning ziet géén pool met open MARAD-taken – alleen de lijsten die Beheer doorstuurt (afvinken).
-  // v1.22: uitzondering: de eigen vaste rondes van de eigen rang, als Beheer die stuurt (rankRoundsCard).
+  // v1.22/v1.23: uitzondering: de eigen MARAD-taken van de eigen rang, als Beheer die stuurt (alleen-lezen, aanvinken → Maak lijst).
   h += OIL.crewCard(); // v1.12.1: ook stagiairs vullen olie bij
   h += `<div class="row crewimp"><button class="btn small ghost" data-act="pasteRoute">${t('📋 Route plakken')}</button><button class="btn small ghost" data-act="importFile">${t('📥 Route-bestand')}</button></div>`;
   return h;
@@ -1836,7 +1807,7 @@ Object.assign(actions, {
 });
 
 // ---------- onderhoud (MARAD) ----------
-const MT = initMaint({ oilApply: (run) => OIL.applyRun(run), isCrew: () => isCrew(), legacyMaint, state, save, rid, esc, header, openSheet, closeSheet, toast, render: () => render(), go: (...x) => go(...x), shareFile, csvCell, fmtDT, plural, locSelect, loc, tx, STRATEGIES, orderSteps, buildShareLink, routePackage, deliverTo: (r, c) => deliverTo(r, c) });
+const MT = initMaint({ rkDone: () => rkDone(), rkName: (g) => rkName(g), rkMakeList: (st, g) => rkMakeList(st, g), oilApply: (run) => OIL.applyRun(run), isCrew: () => isCrew(), legacyMaint, state, save, rid, esc, header, openSheet, closeSheet, toast, render: () => render(), go: (...x) => go(...x), shareFile, csvCell, fmtDT, plural, locSelect, loc, tx, STRATEGIES, orderSteps, buildShareLink, routePackage, deliverTo: (r, c) => deliverTo(r, c) });
 Object.assign(actions, MT.actions);
 const OIL = initOil({ askProfile: (fn) => askProfile(fn), state, save, rid, esc, header, openSheet, closeSheet, toast, render: () => render(), renderRun: () => renderRun(), shareFile, csvCell, fmtDT, tx, isCrew, copyText, persist: () => MT.persist(), sendRouteSheet: (r) => sendRouteSheet(r), sendOil: (ev, sum) => sendOil(ev, sum) });
 Object.assign(actions, OIL.actions);

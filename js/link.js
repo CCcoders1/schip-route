@@ -283,7 +283,7 @@ export async function syncRankSets(force = false, only = null) {
   for (const c of cs) {
     const rank = normRank(c.func); const pk = A.MT.rankPack(rank); if (!pk?.rounds.length) continue;
     const steps = pk.rounds.flatMap((r) => r.steps);
-    const ids = hashOf(c.inbox + '|' + (c.deviceId || '') + '|' + pk.rounds.map((r) => r.key + ':' + r.steps.map((x) => x.id).join(',')).join('|'));
+    const ids = hashOf('p2|' + c.inbox + '|' + (c.deviceId || '') + '|' + pk.rounds.map((r) => r.key + ':' + r.steps.map((x) => x.id).join(',')).join('|'));
     const hash = hashOf(ids + steps.map((x) => (x.marad.due || '') + x.marad.st + (x.locationId || '')).join(','));
     const s = RS[c.id]; const now = Date.now(); const since = s ? now - new Date(s.pubAt).getTime() : Infinity;
     const quiet = s && (s.unacked || 0) >= RS_TRIES; // toestel reageert niet (oudere versie?) → alleen bij een andere takenset opnieuw

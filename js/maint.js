@@ -59,7 +59,7 @@ export function initMaint(api) {
   $f('#fileMarad')?.addEventListener('change', async (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) readFile(f); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.id === 'mPw') { e.preventDefault(); actions.mUnlock(); } });
   if (A.legacyMaint) migrateLegacy(A.legacyMaint);
-  return { rankChips, distLists, distRoute, tacticalOrder, byUrgency, rankOverview, rankRoundsHTML, view, actions, applyRun, applyPending, ensureMaint, runExtra, maradFields, persist, refreshTemplates, rankNames, templateInfo, sugCount, todayHTML, weekBoard, selfSignoff, undoSignoffs, reopenSignoffs, undoReopen, signoffOf, startFixed, needsReunlock, slimDefault, weekStats, rankPack };
+  return { rankChips, distLists, distRoute, tacticalOrder, byUrgency, rankOverview, rankRoundsHTML, view, actions, applyRun, applyPending, ensureMaint, runExtra, maradFields, persist, refreshTemplates, rankNames, templateInfo, sugCount, todayHTML, weekBoard, selfSignoff, undoSignoffs, reopenSignoffs, undoReopen, signoffOf, startFixed, needsReunlock, slimDefault, weekStats, rankPack, crewView };
 }
 const $f = (s) => document.querySelector(s);
 
@@ -429,10 +429,101 @@ export function rankPack(rank) {
   const rounds = [];
   for (const g of groups.filter((y) => y.tasks.length)) {
     const r = buildRoute(g.tasks, { name: '', strategy: slimDefault() });
-    for (const st of r.steps) { const x = g.tasks.find((y) => y.id === st.marad.id); st.id = 'rk-' + st.marad.id; st.marad.st = status(x); st.marad.last = x.lastDone || ''; }
+    for (const st of r.steps) { const x = g.tasks.find((y) => y.id === st.marad.id); st.id = 'rk-' + st.marad.id; st.marad.st = status(x); st.marad.last = x.lastDone || '';
+      // v1.23: voor het MARAD-scherm van de bemanning (alleen-lezen)
+      const c = comp(x); Object.assign(st.marad, { path: c?.path || [], iv: x.interval || null, dw: x.dueWeek ?? null, dih: x.dueInHours ?? null, drh: x.dueRunHours ?? null, lrh: x.lastRunHours ?? null, rank: x.rank, tt: x.taskType || '' }); }
     rounds.push({ key: g.key, icon: g.icon, name: g.name, period: g.period, steps: r.steps });
   }
   return { rank, rounds };
+}
+// ---------- v1.23: MARAD-scherm voor de bemanning (2e stuurman) ----------
+// Zelfde lijst/boom als het MARAD-scherm van Beheer, maar alleen-lezen en alleen met de taken uit het pakket van zijn rang.
+// Aanvinken → 📋 Maak lijst = eigen lijstje (rapport, voortgang en afmelden gaan via Beheer). Geen afmelden of bewerken hier.
+const CF = { view: 'list', st: 'all', loc: '', q: '', rd: '' };
+const csel = new Set();
+function crewTasks() {
+  const rs = A.state.rankSet; if (!rs?.rounds?.length) return [];
+  const done = A.rkDone?.() || new Map(); const out = [];
+  for (const g of rs.rounds) for (const st of g.steps || []) {
+    const m = st.marad || {}; const iv = m.iv || (m.interval ? { text: m.interval } : null);
+    const x = { id: st.id, mid: m.id, name: st.title || '', dueDate: m.due || null, dueWeek: m.dw ?? null, interval: iv, dueInHours: m.dih ?? null, dueRunHours: m.drh ?? null, lastDone: m.last || null, lastRunHours: m.lrh ?? null,
+      rank: m.rank || [rs.rank], taskType: m.tt || '', workCard: st.workCard || '', locId: st.locationId || null, path: m.path?.length ? m.path : [m.comp || '—'], comp: m.comp || '', round: g.key, roundName: A.rkName(g), step: st };
+    x.st = isHours(x) || x.dueDate ? status(x) : m.st === 'overdue' ? 'overdue' : m.st || 'none';
+    const d0 = done.get(m.id); x.doneLocal = d0 && d0 > (m.last || '') ? d0 : null;
+    out.push(x);
+  }
+  return out;
+}
+const cOrd = (a, b) => (ORDER[a.st] - ORDER[b.st]) || String(a.dueDate || '9').localeCompare(String(b.dueDate || '9')) || a.name.localeCompare(b.name);
+function cFiltered(xs = crewTasks()) {
+  const q = CF.q.trim().toLowerCase();
+  return xs.filter((x) => {
+    if (CF.st === 'overdue' && x.st !== 'overdue') return false;
+    if (CF.st === 'week' && !['overdue', 'week'].includes(x.st)) return false;
+    if (CF.st === 'month' && !['overdue', 'week', 'month'].includes(x.st)) return false;
+    if (CF.rd && x.round !== CF.rd) return false;
+    if (CF.loc === '__none' ? x.locId : CF.loc && x.locId !== CF.loc) return false;
+    if (q && !(x.name.toLowerCase().includes(q) || x.path.join(' ').toLowerCase().includes(q) || x.comp.toLowerCase().includes(q))) return false;
+    return true;
+  }).sort((a, b) => (!!a.doneLocal - !!b.doneLocal) || cOrd(a, b)); // te laat eerst; zelf al gedaan onderaan
+}
+function cRow(x) {
+  const l = A.loc(x.locId); const dn = !!x.doneLocal;
+  return `<div class="mtask st-${x.st} ${dn ? 'cdone' : ''}" data-t="${A.esc(x.id)}" data-rd="${A.esc(x.round)}"><label class="mchk"><input type="checkbox" data-csel="${A.esc(x.id)}" ${csel.has(x.id) && !dn ? 'checked' : ''} ${dn ? 'disabled' : ''} aria-label="${t('Selecteren')}"></label><div class="mt-body" data-act="cmTask" data-id="${A.esc(x.id)}">${dot(x.st)}<b>${A.esc(x.name)}</b><small>${isHours(x) ? '' : fmtD(x.dueDate) + ' · '}<span class="due">${x.interval?.unit || x.dueDate ? dueText(x) : STL()[x.st] || '—'}</span> · ${ivText(x.interval)}</small><small>${l ? '📍 ' + A.esc(A.tx(l, 'name')) : `<span class="unl">📍 ${t('niet gekoppeld')}</span>`} · ${A.esc(x.comp || x.path.at(-1) || '')}${dn ? ` · <span class="okc">✔ ${t('gedaan {d}', { d: fmtD(x.doneLocal) })}</span>` : ''}</small></div></div>`;
+}
+function cTree(xs) {
+  const root = { key: '', kids: new Map(), tasks: [] };
+  for (const x of xs) { let n = root, key = ''; for (const p of x.path) { key += '»' + p; if (!n.kids.has(p)) n.kids.set(p, { key: 'c' + key, label: p, kids: new Map(), tasks: [] }); n = n.kids.get(p); } n.tasks.push(x); }
+  const agg = (n) => { n.all = [...n.tasks]; for (const k of n.kids.values()) n.all.push(...agg(k)); return n.all; }; agg(root);
+  const node = (n, depth) => { const c = { overdue: 0, week: 0 }; for (const x of n.all) if (!x.doneLocal && c[x.st] != null) c[x.st]++;
+    const worst = Object.keys(ORDER).find((k) => n.all.some((x) => x.st === k)) || 'none';
+    const kids = [...n.kids.values()].sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
+    return `<details class="mnode d${Math.min(depth, 3)}" data-node="${A.esc(n.key)}" ${open.has(n.key) || CF.q ? 'open' : ''}><summary>${dot(worst)}<span class="mlabel">${A.esc(n.label)}</span><span class="mcnt">${c.overdue ? `<b class="cr">${c.overdue}</b>` : ''}${c.week ? `<b class="co">${c.week}</b>` : ''}<i>${n.all.length}</i></span></summary>${kids.map((k) => node(k, depth + 1)).join('')}${n.tasks.sort(cOrd).map(cRow).join('')}</details>`; };
+  return [...root.kids.values()].sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true })).map((g) => node(g, 0)).join('');
+}
+function cList() {
+  const xs = cFiltered();
+  return (CF.view === 'tree' ? cTree(xs) : xs.map(cRow).join('')) || `<p class="empty">${t('Geen taken met dit filter.')}</p>`;
+}
+function cSelbar() {
+  const n = [...csel].length;
+  return n ? `<div class="selbar"><span>${t('{n} geselecteerd', { n })}</span><button class="btn ok" data-act="cmMake">📋 ${t('Maak lijst')}</button><button class="iconbtn" data-act="cmSelClear" aria-label="${t('Selectie wissen')}">✕</button></div>` : '';
+}
+function cRefresh(selOnly = false) {
+  if (!selOnly) { const el = $f('#cmList'); if (el) el.innerHTML = cList(); const n = $f('#cmCount'); if (n) n.textContent = t('({n} getoond)', { n: cFiltered().length }); }
+  const sb = $f('#cmSelbar'); if (sb) sb.innerHTML = cSelbar();
+}
+export function crewView() {
+  const rs = A.state.rankSet; let h = A.header(t('MARAD'), true);
+  const all = crewTasks();
+  if (!all.length) return h + `<div class="emptystate"><p class="big">🔧</p><p><b>${t('Nog geen MARAD-taken ontvangen.')}</b></p><p class="muted">${t('Beheer stuurt jouw taken vanzelf zodra je gekoppeld bent.')}</p></div>`;
+  for (const id of [...csel]) if (!all.some((x) => x.id === id && !x.doneLocal)) csel.delete(id);
+  const open_ = all.filter((x) => !x.doneLocal); const c = { overdue: 0, week: 0, month: 0, later: 0 }; for (const x of open_) if (c[x.st] != null) c[x.st]++;
+  h += `<p class="shipsub">🔧 MARAD · ${A.esc(rankLabel(rs.rank))} · ${t('{n} taken', { n: all.length })} · ${t('bijgewerkt {at}', { at: A.fmtDT(rs.gen) })}</p>`;
+  h += `<div class="mstats"><button data-act="cmQuick" data-v="overdue">${dot('overdue')}<b>${c.overdue}</b><small>${t('Te laat')}</small></button><button data-act="cmQuick" data-v="week">${dot('week')}<b>${c.week}</b><small>${t('≤ 7 d')}</small></button><button data-act="cmQuick" data-v="month">${dot('month')}<b>${c.month}</b><small>${t('≤ 30 d')}</small></button><button data-act="cmQuick" data-v="all">${dot('later')}<b>${c.later}</b><small>${t('Later')}</small></button></div>`;
+  const vb = (k, lbl) => `<button class="${CF.view === k ? 'on' : ''}" data-act="cmView" data-v="${k}">${lbl}</button>`;
+  h += `<div class="seg mviews">${vb('list', t('☰ Lijst'))}${vb('tree', t('🌳 Boom'))}</div>`;
+  const stb = (k, lbl) => `<button class="${CF.st === k ? 'on' : ''}" data-act="cmSt" data-v="${k}">${lbl}</button>`;
+  h += `<div class="seg mst">${stb('overdue', t('Te laat'))}${stb('week', t('7 dagen'))}${stb('month', t('30 dagen'))}${stb('all', t('Alles'))}</div>`;
+  const usedLoc = new Set(all.map((x) => x.locId).filter(Boolean));
+  h += `<div class="mfilters"><input type="search" data-cmf="q" value="${A.esc(CF.q)}" placeholder="${t('🔍 Zoek taak of component')}"><select data-cmf="loc"><option value="">${t('Alle locaties')}</option><option value="__none" ${CF.loc === '__none' ? 'selected' : ''}>${t('— niet gekoppeld —')}</option>${A.state.locations.filter((l) => usedLoc.has(l.id)).map((l) => `<option value="${l.id}" ${l.id === CF.loc ? 'selected' : ''}>${A.esc(A.tx(l, 'name'))}</option>`).join('')}</select>
+    <select data-cmf="rd"><option value="">${t('Alle rondes')}</option>${rs.rounds.filter((g) => g.steps?.length).map((g) => `<option value="${A.esc(g.key)}" ${g.key === CF.rd ? 'selected' : ''}>${A.esc((g.icon || '') + ' ' + A.rkName(g))}</option>`).join('')}</select></div>`;
+  h += `<div class="row msel"><button class="btn small" data-act="cmSelVisible">${t('☑ Selecteer zichtbare')}</button><button class="btn small" data-act="cmSelDue">${t('☑ Te laat + 7 dagen')}</button></div>`;
+  h += `<p class="muted small">${t('Te laat eerst. Vink aan wat je gaat doen en tik op Maak lijst; de app maakt de looproute. Afmelden gaat via je lijst.')} <span id="cmCount">${t('({n} getoond)', { n: cFiltered(all).length })}</span></p>`;
+  h += `<div id="cmList" class="mlist">${cList()}</div><div id="cmSelbar" class="selwrap">${cSelbar()}</div>`;
+  return h;
+}
+function cTaskSheet(x) {
+  if (!x) return; const l = A.loc(x.locId); const hrs = isHours(x);
+  let h = `<h2>${dot(x.st)} ${A.esc(x.name)}</h2><p class="muted small">${A.esc(x.path.join(' » '))}</p>
+    <dl class="mdl"><dt>${t('Status')}</dt><dd>${STL()[x.st] || '—'}${x.interval?.unit || x.dueDate ? ` · <b>${dueText(x)}</b>` : ''}</dd>
+      ${hrs ? `<dt>${t('Vervalt bij')}</dt><dd>${x.dueRunHours != null ? fmtN(x.dueRunHours) + ' h' : '—'}</dd>` : `<dt>${t('Vervaldatum')}</dt><dd>${fmtD(x.dueDate)}${x.dueWeek ? ` (${t('week {n}', { n: x.dueWeek })})` : ''}</dd>`}
+      <dt>${t('Interval')}</dt><dd>${ivText(x.interval)}</dd><dt>${t('Laatst uitgevoerd')}</dt><dd>${fmtD(x.lastDone)}</dd>
+      <dt>${t('Functie')}</dt><dd>${A.esc(rankLabels(x.rank) || '—')}</dd><dt>${t('Locatie')}</dt><dd>${l ? A.esc(A.tx(l, 'name')) : '—'}</dd><dt>${t('Ronde')}</dt><dd>${A.esc(x.roundName)}</dd></dl>`;
+  if (x.doneLocal) h += `<p class="okbox">✔ ${t('gedaan {d}', { d: fmtD(x.doneLocal) })} · ${t('Beheer meldt hem af in MARAD.')}</p>`;
+  if (x.workCard) h += `<details class="wcard"><summary>${t('📄 Werkkaart (MARAD)')}</summary><pre>${A.esc(x.workCard)}</pre></details>`;
+  h += `<div class="stack">${x.doneLocal ? '' : `<button class="btn primary" data-act="cmToggle" data-id="${A.esc(x.id)}">${csel.has(x.id) ? t('Uit selectie halen') : t('☑ Selecteren voor lijst')}</button>`}<button class="btn ghost" data-act="closeSheet">${t('Sluiten')}</button></div>`;
+  A.openSheet(h);
 }
 /** Locatie "Algemeen" (alleen aangemaakt als een eigen taak geen vaste plek heeft). */
 function generalLoc() {
@@ -644,9 +735,11 @@ function refreshList() {
 function onInput(e) {
   const el = e.target;
   if (el.dataset?.mf) { F[el.dataset.mf] = el.value; refreshList(); }
+  if (el.dataset?.cmf) { CF[el.dataset.cmf] = el.value; cRefresh(); } // v1.23: MARAD-scherm bemanning
 }
 function onChange(e) {
   const el = e.target;
+  if (el.dataset?.csel) { if (el.checked) csel.add(el.dataset.csel); else csel.delete(el.dataset.csel); cRefresh(true); }
   if (el.dataset?.msel) { if (el.checked) sel.add(el.dataset.msel); else sel.delete(el.dataset.msel); const sb = $f('#mSelbar'); if (sb) sb.innerHTML = selbar(); }
   if (el.id === 'mtLoc') { const x = M().tasks.find((y) => y.id === el.dataset.id); x.locId = el.value || null; x.locManual = true; S(); A.toast(t('Locatie gekoppeld')); }
 }
@@ -903,3 +996,19 @@ export function undoReopen(recId) {
 }
 /** Afmelding van een taak sinds `since` (voor de keuzelijst). */
 export function signoffOf(taskId, since) { return (M()?.signoffs || []).filter((s) => s.taskId === taskId && s.doneDate >= since).at(-1) || null; }
+// v1.23: MARAD-scherm bemanning
+Object.assign(actions, {
+  cmView: (a) => { CF.view = a.dataset.v; A.render(); },
+  cmSt: (a) => { CF.st = a.dataset.v; A.render(); },
+  cmQuick: (a) => { CF.st = a.dataset.v; A.render(); },
+  cmTask: (a) => cTaskSheet(crewTasks().find((x) => x.id === a.dataset.id)),
+  cmToggle: (a) => { const id = a.dataset.id; if (csel.has(id)) csel.delete(id); else csel.add(id); A.closeSheet(); A.render(); },
+  cmSelClear: () => { csel.clear(); A.render(); },
+  cmSelVisible: () => { for (const x of cFiltered()) if (!x.doneLocal) csel.add(x.id); A.render(); },
+  cmSelDue: () => { for (const x of cFiltered()) if (!x.doneLocal && ['overdue', 'week'].includes(x.st)) csel.add(x.id); A.render(); },
+  cmMake: () => {
+    const xs = crewTasks().filter((x) => csel.has(x.id) && !x.doneLocal); if (!xs.length) return A.toast(t('Kies eerst één of meer taken.'));
+    const rds = new Set(xs.map((x) => x.round)); const one = rds.size === 1 ? A.state.rankSet.rounds.find((g) => g.key === [...rds][0]) : null;
+    csel.clear(); A.rkMakeList(xs.map((x) => x.step), one);
+  },
+});

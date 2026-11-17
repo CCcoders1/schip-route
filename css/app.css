@@ -690,18 +690,10 @@ html:has(.pdaysw) header.top h1 { font-size: 1.25rem; line-height: 1.2; white-sp
 .pc-name small { display: block; font-size: .85rem; font-weight: 500; color: var(--muted); margin-top: 2px; }
 .pmode button { font-size: .92rem; padding: 0 4px; line-height: 1.15; }
 .roBtn { margin-top: 6px; min-height: 40px; } .tag.rotag { background: #fff1de; color: #a35400; } .pt-warn { color: var(--warn) !important; font-weight: 600; }
-/* v1.22: eigen vaste rondes (2e stuurman) */
-.rkset { margin-top: 14px; }
-.rkset .rkhead { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.rkset .rkhead h2 { margin: 0; font-size: 1.2rem; }
-.rkpick details > summary { font-weight: 600; cursor: pointer; }
-.rklist { list-style: none; margin: 8px 0 0; padding: 0; }
-.rklist li { border-top: 1px solid var(--line, #e0e0e0); }
-.rklist label { display: flex; gap: 10px; align-items: flex-start; padding: 10px 2px; min-height: 44px; }
-.rklist input { width: 22px; height: 22px; flex: 0 0 auto; margin-top: 2px; }
-.rklist label > span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.rklist small { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-.rklist b { font-weight: 500; overflow-wrap: anywhere; }
-.rklist .rk-done { opacity: .55; }
-.stack.sticky { position: sticky; bottom: 0; background: var(--card); padding-top: 8px; }
+/* v1.22/v1.23: 2e stuurman – MARAD-scherm (alleen-lezen) */
 .pperson .rsline { display: block; margin-top: 2px; }
+.cmentry h2 small { font-weight: 500; font-size: .9rem; }
+.cmentry .btn.big { width: 100%; margin-top: 6px; }
+.mtask.cdone { opacity: .6; }
+#cmList { padding-bottom: 84px; }
+body.crew .selbar { bottom: calc(12px + env(safe-area-inset-bottom)); }
