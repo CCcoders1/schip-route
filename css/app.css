@@ -639,3 +639,20 @@ html:has(.dfoot) #toast { bottom: calc(220px + env(safe-area-inset-bottom)); }
 .rotask.off { opacity: .55; cursor: default; }
 .reopenbox { margin: 6px 0 10px; }
 .reopentag { color: #9a5b00; font-weight: 700; margin: 4px 0 0; }
+/* v1.20 stand exporteren */
+.xport { margin: 18px 0 8px; gap: 6px; } .xport small { display: block; } .xwarn { font-weight: 600; }
+/* v1.20 Overige taken in Taken verdelen */
+.restfilter .rchips { margin: 6px 0; } .restby { margin: 6px 0 4px; }
+.dlocsec { margin: 10px 2px 4px; font-size: .9rem; color: var(--muted, #5b6b7a); font-weight: 700; }
+.restlist .dlist { border-left: 4px solid #c0392b; }
+/* v1.20 eigen taken */
+.ctbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; margin: 8px 0 12px; } .ctbar .ctnew { flex: 0 0 auto; }
+.ctdrop { flex: 1 1 100%; background: var(--card, #fff); border: 1px solid #d5dde5; border-radius: 10px; padding: 6px 10px; } .ctdrop summary { cursor: pointer; font-weight: 600; padding: 4px 0; }
+.ctdrop.inform { margin: 6px 0 10px; }
+.ctrow { display: flex; gap: 6px; align-items: center; margin: 6px 0; } .ctrow .ctuse { flex: 1; text-align: left; justify-content: flex-start; }
+.tag.ctag { background: #efe6fb; color: #4b2a7a; border: 1px solid #d7c4f2; }
+.cthide { margin-left: 4px; padding: 2px 8px; font-size: .8rem; }
+.ctmeas .row { gap: 6px; } .ctmeas input, .ctmeas select { min-width: 0; flex: 1; } #ctMUnit { flex: 0 0 80px; } #ctMType { flex: 0 0 90px; }
+.btn.tplsave { width: 100%; justify-content: flex-start; margin: 6px 0 10px; border: 2px dashed #9fb3c8; } .btn.tplsave.on { border-style: solid; border-color: #1e8449; background: #e6f6ec; color: #0a5d2c; }
+.btn.tplsave .tsw { display: inline-flex; width: 22px; height: 22px; border: 2px solid currentColor; border-radius: 6px; align-items: center; justify-content: center; margin-right: 6px; }
+.cuslist .dlist { border-left: 4px solid #8e44ad; }

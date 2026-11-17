@@ -33,7 +33,7 @@ const sorted = (l) => [...l.tasks].sort((a, b) => A.MT.byUrgency(a, b));
 const shown = (l) => { const xs = sorted(l); return D().dueOnly[l.key] ? xs.filter((x) => x.soon) : xs; };
 const assignOf = (l, x) => { const e = D().a[l.key]?.[x.key]; return e?.rank ? e : null; };
 /** Na het versturen afgetekend? (MARAD-afmelding op/na de dag van toewijzen) → { by, date } of null. */
-const doneOf = (l, x) => { const e = assignOf(l, x); const tk = x.marad && A.state.maint?.tasks?.find((y) => y.id === x.marad); const ad = tk?.appDone; if (!e || !ad?.date || ad.date < String(e.at).slice(0, 10)) return null; const lg = (tk.doneLog || []).filter((d) => d.date === ad.date).pop(); return { by: lg?.by || '', date: ad.date }; };
+const doneOf = (l, x) => { const e = assignOf(l, x); if (x.custom) return e ? customDone(x.key, e.at) : null; const tk = x.marad && A.state.maint?.tasks?.find((y) => y.id === x.marad); const ad = tk?.appDone; if (!e || !ad?.date || ad.date < String(e.at).slice(0, 10)) return null; const lg = (tk.doneLog || []).filter((d) => d.date === ad.date).pop(); return { by: lg?.by || '', date: ad.date }; };
 const selOf = (l) => new Set(D().sel[l.key] || []);
 const today = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
 /** Vandaag al afgemeld (door wie dan ook: zelf, rapport of ronde)? → { by } of null. Leest de bestaande MARAD-afmelding. */
@@ -81,10 +81,17 @@ function sentList() { return Object.entries(D().sent).filter(([k, s]) => s.list 
 function overview() {
   const ls = lists(), sl = sentList();
   let h = A.header(t('Taken verdelen'), true) + `<p class="muted">${t('Open een lijst: de te late taken staan bovenaan. Tik de taken aan die je wilt meegeven en stuur de selectie naar iemand. De app bepaalt zelf de looproute over het schip.')}</p>`;
+  h += ctBar();
   if (sl.length) h += `<button class="card tap dsendbanner" data-act="distSendView">📤 <b>${t('Verstuurde lijstjes')}</b><small>${t('{a} lijstjes · {b} taken', { a: sl.length, b: sl.reduce((a, x) => a + x.r.steps.length, 0) })}</small></button>`;
   const fx = ls.filter((l) => l.kind === 'fixed'), own = ls.filter((l) => l.kind === 'route');
   if (fx.length) h += `<h3 class="sec">📌 ${t('Vaste rondes')}</h3><div class="list">${fx.map(listCard).join('')}</div>`;
   else if (!A.state.maint?.tasks) h += `<section class="card"><p class="muted small">${t('Ontgrendel de MARAD-gegevens om de vaste rondes te verdelen.')}</p><button class="btn primary" data-act="mUnlockSheet">${t('🔓 Ontgrendelen')}</button></section>`;
+  // v1.20: eigen taken
+  const cus = ls.find((l) => l.kind === 'custom');
+  if (cus?.tasks.length) h += `<h3 class="sec">✏️ ${t('Eigen taken')}</h3><div class="list cuslist">${listCard(cus)}</div>`;
+  // v1.20: losse taken (niet in een vaste ronde) als eigen stapel
+  const rest = ls.find((l) => l.kind === 'rest');
+  if (rest && (rest.tasks.length || Object.values(D().sent).some((x) => x.list === rest.key))) h += `<h3 class="sec">🗂 ${t('Overige taken')}</h3><p class="muted small">${t('Losse taken die in geen enkele vaste ronde zitten – oudste te late bovenaan.')}</p><div class="list restlist">${listCard(rest)}</div>`;
   if (own.length) h += `<h3 class="sec">🧭 ${t('Eigen rondes')}</h3><div class="list">${own.map(listCard).join('')}</div>`;
   return h;
 }
@@ -94,20 +101,26 @@ function listView(l) {
   let h = A.header(t('Taken verdelen'), true) + `<h2 class="dlh">${l.icon} ${esc(l.name)}</h2>`;
   h += `<p class="shipsub">${t('{n} taken', { n: l.tasks.length })}${l.period ? ' · ' + esc(l.period) : ''}</p>`;
   if (l.kind === 'fixed') h += `<div class="seg"><button class="${dueOnly ? '' : 'on'}" data-act="distDue" data-v="0">${t('Alle taken ({n})', { n: l.tasks.length })}</button><button class="${dueOnly ? 'on' : ''}" data-act="distDue" data-v="1">${t('Aan de beurt ({n})', { n: nSoon })}</button></div>`;
+  const byLoc = l.kind === 'rest' && D().restBy === 'loc';
+  if (l.kind === 'custom') h += ctBar(true);
+  if (l.kind === 'rest') h += `<div class="restfilter">${A.MT.rankChips?.() || ''}</div><div class="seg restby"><button class="${byLoc ? '' : 'on'}" data-act="distRestBy" data-v="due">⏰ ${t('Oudste eerst')}</button><button class="${byLoc ? 'on' : ''}" data-act="distRestBy" data-v="loc">📍 ${t('Per locatie')}</button></div>`;
   h += `<p class="muted small">${t('Tik een taak aan om hem te selecteren. Daarna: "Stuur selectie naar…".')}</p>`;
   h += `<div class="row dselbar"><span class="dselcount"><b>${t('{n} geselecteerd', { n: sel.size })}</b></span>${nOd ? `<button class="btn small" data-act="distSelOd">⏰ ${t('Selecteer te late ({n})', { n: nOd })}</button>` : ''}<button class="btn small ghost" data-act="distSelAll">${t('Alles')}</button><button class="btn small ghost" data-act="distSelNone" ${sel.size ? '' : 'disabled'}>${t('Niets')}</button></div>`;
   h += '<div class="dtasks">';
   if (!xs.length) h += `<p class="empty">${t('Geen taken.')}</p>`;
   for (const st of ST_ORDER) {
     const g = xs.filter((x) => stOf(x) === st); if (!g.length) continue;
-    const [cls, lbl] = ST()[st];
+    const [cls, lbl0] = ST()[st]; const lbl = l.kind === 'custom' ? t('Eigen taken') : lbl0;
     h += `<h3 class="dsec ${cls}" data-st="${st}">${lbl} (${g.length})</h3>`;
+    if (byLoc) { const LI = new Map(A.state.locations.map((y, i) => [y.id, i])); const li = (x) => LI.get(x.loc) ?? 1e6; g.sort((a, b) => li(a) - li(b) || (a.dd || '9999').localeCompare(b.dd || '9999')); }
+    let lastLoc = null;
     for (const x of g) {
+      if (byLoc && x.loc !== lastLoc) { lastLoc = x.loc; const lo = A.loc(x.loc); h += `<h4 class="dlocsec">📍 ${esc(lo ? A.tx(lo, 'name') : t('Geen locatie'))}</h4>`; }
       const on = sel.has(x.key), a = assignOf(l, x), dn = a && doneOf(l, x); const hint = normRanks(x.ranks).find((r) => RANK_IDS.includes(r));
       const td = !dn && doneToday(x);
       h += `<div class="dtask ${on ? 'sel' : ''} st-${st} ${td ? 'selfdone' : ''}" role="checkbox" tabindex="0" aria-checked="${on}" data-act="distTog" data-t="${esc(x.key)}" data-st="${st}">
         <span class="dchk">${on ? '✔' : ''}</span><div class="dt-body"><b>${esc(x.title)}</b><small>${esc(x.sub)}${x.due ? ` · 📅 ${esc(x.due)}` : ''}</small>
-        <span class="dtags">${cls ? `<span class="tag ${cls}">${lbl}</span>` : ''}${hint ? `<span class="tag ghost">${RANK_ICON[hint]} ${esc(rankLabel(hint))}</span>` : ''}${a ? (dn ? `<span class="tag ok sdone">✔ ${t('Afgetekend door {name}', { name: esc(dn.by || whoShort(a)) })}</span>` : `<span class="tag sent">${isSelf(a) ? '🙋' : '📤'} ${esc(whoShort(a))}</span>`) : ''}${td ? `<span class="tag ok sdone">✔ ${t('Afgetekend door {name}', { name: esc(td.by || t('ik')) })}</span>` : ''}</span></div>${canSelf(x) ? `<button class="dself" data-act="distSelfOne" data-t="${esc(x.key)}" aria-label="${t('Zelf afvinken')}" title="${t('Zelf afvinken')}">✓</button>` : ''}</div>`;
+        <span class="dtags">${x.custom ? `<span class="tag ctag">✏️ ${t('Eigen taak')}</span>${!a || dn ? `<button class="btn small ghost cthide" data-act="ctHide" data-id="${esc(x.key)}">✕ ${t('Weghalen')}</button>` : ''}` : ''}${cls && !x.custom ? `<span class="tag ${cls}">${lbl}</span>` : ''}${hint ? `<span class="tag ghost">${RANK_ICON[hint]} ${esc(rankLabel(hint))}</span>` : ''}${a ? (dn ? `<span class="tag ok sdone">✔ ${t('Afgetekend door {name}', { name: esc(dn.by || whoShort(a)) })}</span>` : `<span class="tag sent">${isSelf(a) ? '🙋' : '📤'} ${esc(whoShort(a))}</span>`) : ''}${td ? `<span class="tag ok sdone">✔ ${t('Afgetekend door {name}', { name: esc(td.by || t('ik')) })}</span>` : ''}</span></div>${canSelf(x) ? `<button class="dself" data-act="distSelfOne" data-t="${esc(x.key)}" aria-label="${t('Zelf afvinken')}" title="${t('Zelf afvinken')}">✓</button>` : ''}</div>`;
     }
   }
   h += '</div>';
@@ -156,6 +169,7 @@ function pickSheet(l) {
   const pbtn = (rank, name) => { const pc = A.LINK.pairedFor({ rank, name }); return `<button class="btn pbtn ${pc ? 'paired' : ''}" data-act="distSet" data-r="${esc(rank)}" data-n="${esc(name)}">${RANK_ICON[rank]} <b>${esc(name)}</b> <small>${esc(rankLabel(rank))}${pc ? ' · 🔗 ' + t('direct in app') : ''}</small></button>`; };
   const me = myName();
   A.openSheet(`<h2>${t('Stuur {n} taken naar…', { n })}</h2><p class="muted small">${t('De app zet de taken zelf in een slimme looproute. Gekoppelde mensen (🔗) krijgen het lijstje direct in hun app. Wie nog niet gekoppeld is, koppel je eerst (Voortgang → Iemand koppelen).')}</p>
+    ${l.kind === 'custom' ? tplToggle(l) : ''}
     <button class="btn pbtn pself" data-act="distSet" data-self="1">🙋 <b>${t('Ikzelf')}${me ? ` (${esc(me)})` : ''}</b> <small>${t('Komt bovenaan je Rondes · geen koppeling nodig')}</small></button>
     ${people.length || used.length ? `<div class="flbl">${t('Persoon')}</div><div class="pgrid">${people.map((c) => pbtn(normRank(c.func), c.name)).join('')}${used.map((k) => pbtn(...k.split('|'))).join('')}</div>` : ''}
     <div class="flbl">${t('Rang')}</div><label class="small">${t('Naam erbij (optioneel)')}<input id="dName" autocomplete="off" autocapitalize="words" placeholder="${t('bijv. voornaam')}" value=""></label>
@@ -235,15 +249,18 @@ export function back() {
  *  De aantekening (onderwerp) en de opmerkingen per taak gaan mee in het lijstje én staan bij de toewijzing. */
 function sendOne(l, who, c, note, tnotes, quiet) {
   const sel = selOf(l); if (!sel.size) return null;
-  const wk = whoKey(who), key = sentKey(l, who);
+  const cu = l.kind === 'custom'; const stamp = cu ? Date.now().toString(36) : '';
+  const wk = whoKey(who), key = sentKey(l, who) + (cu ? '#' + stamp : '');
   // zelfde ronde opnieuw naar dezelfde ontvanger = die kaart vervangen (andere rondes blijven staan)
   const a = (D().a[l.key] ||= {});
-  for (const [tk, e] of Object.entries(a)) if (e.rank && whoKey(e) === wk) delete a[tk];
+  if (!cu) for (const [tk, e] of Object.entries(a)) if (e.rank && whoKey(e) === wk) delete a[tk];
   const at = new Date().toISOString();
   for (const k of sel) a[k] = { rank: who.rank, name: who.name, at };
   const r = A.MT.distRoute(itemsOf(l, sel), { name: l.name, assignee: who.name });
-  const id = 'r-dist-' + slug(l.key) + '-' + slug(who.rank) + (who.name ? '-' + slug(who.name) : '');
-  Object.assign(r, { id, name: l.name, tr: undefined, source: 'dist', distList: l.key, intendedRank: who.rank, intendedName: who.name, description: '' });
+  const id = 'r-dist-' + slug(l.key) + '-' + slug(who.rank) + (who.name ? '-' + slug(who.name) : '') + (cu ? '-' + stamp : '');
+  const cuT = cu ? (D().custom?.tasks || []).filter((x) => sel.has(x.id)) : [];
+  const lname = cu && cuT.length === 1 ? '✏️ ' + cuT[0].title : l.name;
+  Object.assign(r, { id, name: lname, tr: undefined, source: 'dist', distList: l.key, intendedRank: who.rank, intendedName: who.name, description: '' });
   if (isSelf(who)) Object.assign(r, { self: true, intendedName: myName(), assignee: myName(), stepsDone: [] });
   delete r.tr;
   const tn = {}; for (const [k, v] of Object.entries(tnotes || {})) { const x = clean(v); if (x && sel.has(k)) tn[k] = x; }
@@ -251,7 +268,7 @@ function sendOne(l, who, c, note, tnotes, quiet) {
   for (const st of r.steps) { const k = st.marad?.id || st.fromStep; if (k && tn[k]) st.note = tn[k]; else delete st.note; }
   const i = A.state.routes.findIndex((x) => x.id === id); if (i >= 0) A.state.routes[i] = r; else A.state.routes.push(r);
   const prev = D().sent[key] || {};
-  D().sent[key] = { ...prev, at, n: r.steps.length, routeId: id, rank: who.rank, name: who.name, list: l.key, listName: l.name, note: nt, tnotes: tn };
+  D().sent[key] = { ...prev, at, n: r.steps.length, routeId: id, rank: who.rank, name: who.name, list: l.key, listName: lname, ...(cu ? { custom: cuT.map((x) => x.id) } : {}), note: nt, tnotes: tn };
   D().sel[l.key] = [];
   if (!r.intendedName) r.intendedName = c?.name || '';
   return { r, key };
@@ -450,7 +467,76 @@ function selfDo(l, keys) {
   A.toastAct(es.length === 1 ? t('1 taak afgevinkt') : t('{n} taken afgevinkt', { n: es.length }), t('Ongedaan maken'), 'distUndo', 8000, { ids: es.map((e) => e.id).join(',') });
   clearTimeout(syncT); syncT = setTimeout(() => A.LINK.syncDone(), 9000); // pas na de ongedaan-maken-tijd naar de bemanning
 }
+
+// ---------- v1.20: eigen taken (＋ Nieuwe taak) en bewaarde taken (sjablonen) ----------
+const CK = 'eigen';
+const CU = () => { const c = (D().custom ||= {}); c.tasks ||= []; c.tpl ||= []; return c; };
+let CF = null; // open formulier: { tplId, edit }
+/** Klaar? Een afgeronde ronde (bemanning of Ikzelf) waarin deze eigen taak als "gedaan" staat, na het toewijzen. */
+function customDone(id, at) {
+  for (const r of A.state.routes) {
+    const st = r.steps?.find((x) => x.custom === id); if (!st) continue;
+    const run = A.state.runs.filter((z) => z.routeId === r.id && z.finishedAt && z.finishedAt >= at).find((z) => z.results?.some((q) => q.stepId === st.id && q.status === 'done'));
+    if (run) return { by: run.by || '', date: String(run.finishedAt).slice(0, 10) };
+  }
+  return null;
+}
+function ctBar(inList = false) {
+  const tp = CU().tpl;
+  return `<div class="ctbar ${inList ? 'inlist' : ''}"><button class="btn primary ctnew" data-act="ctNew">＋ ${t('Nieuwe taak')}</button>${tp.length ? `<details class="ctdrop"><summary>📂 ${t('Bewaarde taken ({n})', { n: tp.length })}</summary><div class="ctlist">${tp.map(tplRow).join('')}</div></details>` : ''}</div>`;
+}
+function tplRow(x) {
+  const l = x.locId && A.loc(x.locId);
+  return `<div class="ctrow"><button class="btn small ctuse" data-act="ctUse" data-id="${esc(x.id)}">✏️ <b>${esc(x.title)}</b>${l ? ` <small>· ${esc(A.tx(l, 'name'))}</small>` : ''}${x.measure?.label ? ` <small>· 📏 ${esc(x.measure.label)}${x.measure.unit ? ' (' + esc(x.measure.unit) + ')' : ''}</small>` : ''}</button><button class="iconbtn ctedit" data-act="ctEdit" data-id="${esc(x.id)}" aria-label="${t('Bewerken')}">✎</button><button class="iconbtn ctdel" data-act="ctDel" data-id="${esc(x.id)}" aria-label="${t('Verwijderen')}">✕</button></div>`;
+}
+function ctForm(v = {}, ctx = {}) {
+  CF = ctx;
+  const locs = A.state.locations.filter((l) => l.id !== 'l-algemeen');
+  const tp = CU().tpl;
+  A.openSheet(`<h2>${ctx.edit ? '✎ ' + t('Bewaarde taak bewerken') : '＋ ' + t('Nieuwe taak')}</h2>
+    ${!ctx.edit && tp.length ? `<details class="ctdrop inform"><summary>📂 ${t('Bewaarde taken ({n})', { n: tp.length })}</summary><div class="ctlist">${tp.map(tplRow).join('')}</div></details>` : ''}
+    <p class="muted small">✏️ ${t('Eigen taak: alleen in de app, telt niet mee voor MARAD.')}</p>
+    <label class="pnote"><span class="flbl">${t('Titel')} *</span><input id="ctTitle" maxlength="140" autocomplete="off" value="${esc(v.title || '')}" placeholder="${t('bijv. Lier voor smeren')}"></label>
+    <label class="pnote"><span class="flbl">📍 ${t('Locatie (optioneel)')}</span><select id="ctLoc"><option value="">${t('— Geen vaste plek —')}</option>${locs.map((l) => `<option value="${esc(l.id)}" ${l.id === v.locId ? 'selected' : ''}>${esc(A.tx(l, 'name'))}</option>`).join('')}</select></label>
+    <label class="pnote"><span class="flbl">📝 ${t('Omschrijving (optioneel)')}</span><textarea id="ctNote" rows="2" maxlength="600">${esc(v.note || '')}</textarea></label>
+    <div class="ctmeas"><span class="flbl">📏 ${t('Meting (optioneel)')}</span><div class="row"><input id="ctMLabel" maxlength="60" autocomplete="off" placeholder="${t('bijv. Druk')}" value="${esc(v.measure?.label || '')}"><input id="ctMUnit" maxlength="12" autocomplete="off" placeholder="${t('eenheid')}" value="${esc(v.measure?.unit || '')}"><select id="ctMType"><option value="number" ${v.measure?.type !== 'text' ? 'selected' : ''}>${t('getal')}</option><option value="text" ${v.measure?.type === 'text' ? 'selected' : ''}>${t('tekst')}</option></select></div></div>
+    <div class="row sticky">${ctx.edit ? `<button class="btn primary big" data-act="ctTplSave">💾 ${t('Opslaan')}</button>` : `<button class="btn primary big" data-act="ctGo">${t('Verder')} ›</button>`}<button class="btn ghost" data-act="closeSheet">${t('Annuleren')}</button></div>`, { ctForm: true });
+}
+function readForm() {
+  const title = clean($f('#ctTitle')?.value).slice(0, 140); if (!title) { A.toast(t('Geef de taak een titel.')); $f('#ctTitle')?.focus(); return null; }
+  const ml = clean($f('#ctMLabel')?.value).slice(0, 60);
+  return { title, locId: $f('#ctLoc')?.value || '', note: clean($f('#ctNote')?.value).slice(0, 600), measure: ml ? { label: ml, unit: clean($f('#ctMUnit')?.value).slice(0, 12), type: $f('#ctMType')?.value === 'text' ? 'text' : 'number' } : null };
+}
+function tplToggle(l) {
+  const xs = CU().tasks.filter((x) => selOf(l).has(x.id) && (!x.tplId || x.tplNew)); if (!xs.length) return '';
+  const on = xs.every((x) => x.tplNew);
+  return `<button class="btn tplsave ${on ? 'on' : ''}" data-act="ctSaveTog" role="switch" aria-checked="${on}"><span class="tsw">${on ? '✔' : ''}</span> 💾 ${t('Bewaar taak voor volgende keer')}</button>`;
+}
 export const actions = {
+
+  ctNew: () => { A.closeSheet(); ctForm(); },
+  ctUse: (a) => { const x = CU().tpl.find((y) => y.id === a.dataset.id); if (!x) return; A.closeSheet(); ctForm(x, { tplId: x.id }); },
+  ctEdit: (a) => { const x = CU().tpl.find((y) => y.id === a.dataset.id); if (!x) return; A.closeSheet(); ctForm(x, { tplId: x.id, edit: true }); },
+  ctDel: (a) => { const x = CU().tpl.find((y) => y.id === a.dataset.id); if (!x || !confirm(t('Bewaarde taak "{name}" verwijderen?', { name: x.title }))) return; CU().tpl = CU().tpl.filter((y) => y.id !== x.id); for (const c of CU().tasks) if (c.tplId === x.id) { delete c.tplId; delete c.tplNew; } A.save(); A.closeSheet(); A.render(); A.toast(t('Bewaarde taak verwijderd')); },
+  ctTplSave: () => { const v = readForm(); if (!v) return; const x = CU().tpl.find((y) => y.id === CF?.tplId); if (!x) return; Object.assign(x, v, { updatedAt: new Date().toISOString() }); A.save(); A.closeSheet(); A.render(); A.toast(t('Bewaarde taak bijgewerkt')); },
+  ctGo: () => {
+    const v = readForm(); if (!v) return;
+    const c = { id: 'ct-' + A.rid(), ...v, createdAt: new Date().toISOString(), by: myName(), ...(CF?.tplId ? { tplId: CF.tplId } : {}) };
+    CU().tasks.push(c); if (CU().tasks.length > 400) CU().tasks = CU().tasks.slice(-400);
+    D().sel[CK] = [c.id]; A.save(); A.closeSheet(); A.go('verdelen', { dist: CK });
+    const l = listBy(CK); if (l) pickSheet(l);
+  },
+  ctSaveTog: () => {
+    const l = listBy(PK?.list || CK); if (!l) return;
+    const xs = CU().tasks.filter((x) => selOf(l).has(x.id) && (!x.tplId || x.tplNew)); if (!xs.length) return;
+    const on = xs.every((x) => x.tplNew);
+    for (const x of xs) {
+      if (on) { CU().tpl = CU().tpl.filter((y) => y.id !== x.tplId); delete x.tplId; delete x.tplNew; }
+      else { const tp = { id: 'tpl-' + A.rid(), title: x.title, locId: x.locId, note: x.note, measure: x.measure ? { ...x.measure } : null, createdAt: new Date().toISOString() }; CU().tpl.push(tp); x.tplId = tp.id; x.tplNew = true; }
+    }
+    A.save(); pickSheet(l); A.toast(on ? t('Niet meer bewaard') : t('Bewaard voor volgende keer'));
+  },
+  ctHide: (a) => { const c = CU().tasks.find((y) => y.id === a.dataset.id); if (!c) return; c.hidden = true; D().sel[CK] = (D().sel[CK] || []).filter((k) => k !== c.id); A.save(); A.render(); },
   distReopen: (a) => { A.closeSheet(); reopenSheet(a.dataset.k); },
   roTog: (a) => { if (!RO) return; const k = a.dataset.t; if (RO.sel.has(k)) RO.sel.delete(k); else RO.sel.add(k); reopenSheet(RO.k, true); },
   roAll: () => { if (!RO) return; const I = reopenInfo(RO.k); RO.sel = new Set(I.steps.filter((x) => x.ok).map((x) => x.key)); reopenSheet(RO.k, true); },
@@ -483,6 +569,7 @@ export const actions = {
   distSendView: () => A.go('verdelen', { dist: '__send' }),
   distDue: (a) => { const k = A.view().dist; D().dueOnly[k] = a.dataset.v === '1'; A.save(); A.render(); },
   distTog: (a) => { const l = listBy(A.view().dist); if (!l) return; const s = selOf(l); const k = a.dataset.t; if (s.has(k)) s.delete(k); else s.add(k); setSel(l, s); A.save(); const y = scrollY; A.render(); scrollTo(0, y); },
+  distRestBy: (a) => { D().restBy = a.dataset.v === 'loc' ? 'loc' : 'due'; A.save(); A.render(); },
   distSelOd: () => { const l = listBy(A.view().dist); if (!l) return; setSel(l, new Set(l.tasks.filter((x) => x.st === 'overdue').map((x) => x.key))); A.save(); A.render(); },
   distSelAll: () => { const l = listBy(A.view().dist); if (!l) return; setSel(l, new Set(shown(l).map((x) => x.key))); A.save(); A.render(); },
   distSelNone: () => { const l = listBy(A.view().dist); if (!l) return; setSel(l, new Set()); A.save(); A.render(); },

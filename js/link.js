@@ -19,7 +19,7 @@ let pLoaded = false;
 export function initLink(api) {
   A = api;
   self.OutboxCore?.kv.get('progress').then((v) => { if (v) { P = { seen: v.seen || {}, runs: v.runs || {} }; if (dedupeRuns()) savePg(); } pLoaded = true; if (['voortgang', 'vandaag'].includes(A.view().tab)) A.render(); }).catch(() => { pLoaded = true; });
-  return { pairView, progressView, todayBanner, actions, pollInbox, handleMgrMsg, retry, deliver, progressEvent, pairedFor, chunkItems, pairSheet, doneAfter, paired, syncDone, busyList, sentState, runIdsFor };
+  return { pairView, progressView, todayBanner, actions, pollInbox, handleMgrMsg, retry, deliver, progressEvent, pairedFor, chunkItems, pairSheet, doneAfter, paired, syncDone, busyList, sentState, runIdsFor, progressData: () => P };
 }
 /** Voortgang per persoon + ronde: één rij (nieuwe start / opnieuw versturen werkt die rij bij i.p.v. te stapelen). */
 const pkey = (e) => String(e.dev || e.by || '?').toLowerCase() + '|' + (e.route || e.rn || '');
@@ -392,6 +392,8 @@ export function progressView() {
   const ps = paired().sort((a, b) => RANK_IDS.indexOf(normRank(a.func)) - RANK_IDS.indexOf(normRank(b.func)));
   h += `<h3 class="sec">👥 ${t('Gekoppelde mensen')} (${ps.length})</h3>`;
   h += ps.length ? `<div class="list">${ps.map((c) => `<article class="card pperson"><b>${RANK_ICON[normRank(c.func)] || '👤'} ${esc(c.name)}</b><small>${esc(rankLabel(normRank(c.func)))} · ${c.lastSeen ? t('laatst gezien {d}', { d: A.fmtDT(c.lastSeen) }) : t('nog niet gezien')}</small></article>`).join('')}</div>` : `<p class="muted small">${t('Nog niemand gekoppeld. Vraag iemand in zijn app: Meer → Koppelen met Beheer, en plak de code hier.')}</p>`;
+  // v1.20: volledige stand als bestand (voor eigen analyse / privé delen)
+  h += `<div class="stack xport"><button class="btn" data-act="stateExport">📦 ${t('Stand exporteren')}</button><small class="muted">${t('Alle gegevens in één bestand (zonder kanalen of codes). Alleen privé delen.')}</small></div>`;
   return h;
 }
 export function pairSheet() {

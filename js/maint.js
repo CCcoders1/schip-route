@@ -59,7 +59,7 @@ export function initMaint(api) {
   $f('#fileMarad')?.addEventListener('change', async (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) readFile(f); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.id === 'mPw') { e.preventDefault(); actions.mUnlock(); } });
   if (A.legacyMaint) migrateLegacy(A.legacyMaint);
-  return { distLists, distRoute, tacticalOrder, byUrgency, rankOverview, rankRoundsHTML, view, actions, applyRun, applyPending, ensureMaint, runExtra, maradFields, persist, refreshTemplates, rankNames, templateInfo, sugCount, todayHTML, weekBoard, selfSignoff, undoSignoffs, reopenSignoffs, undoReopen, signoffOf, startFixed, needsReunlock, slimDefault, weekStats };
+  return { rankChips, distLists, distRoute, tacticalOrder, byUrgency, rankOverview, rankRoundsHTML, view, actions, applyRun, applyPending, ensureMaint, runExtra, maradFields, persist, refreshTemplates, rankNames, templateInfo, sugCount, todayHTML, weekBoard, selfSignoff, undoSignoffs, reopenSignoffs, undoReopen, signoffOf, startFixed, needsReunlock, slimDefault, weekStats };
 }
 const $f = (s) => document.querySelector(s);
 
@@ -372,13 +372,27 @@ function buildRoute(tasks, { name, assignee = '', strategy = 'kortste', fallback
 
 // ---------- taken verdelen (lijsten → taken → ontvanger) ----------
 /** Lijsten om te verdelen: vaste rondes (alle taken) + eigen routes. Taak-sleutel = MARAD-id of stap-id. */
+export const REST_KEY = 'fx-overig';
+export const CUSTOM_KEY = 'eigen';
+const distTask = (x, soonFn) => { const c = comp(x), l = A.loc(x.locId), st = status(x); return { key: x.id, title: x.name, sub: [c ? (c.code ? c.code + ' – ' : '') + c.name : '', l ? A.tx(l, 'name') : ''].filter(Boolean).join(' · '), ranks: x.rank, st, due: x.dueDate ? fmtD(x.dueDate) : '', soon: st === 'overdue' || st === 'week' || soonFn(x), marad: x.id, dd: x.dueDate || '', loc: x.locId || '' }; };
 export function distLists() {
   const m = M(); const out = [];
   if (m?.tasks) {
     allSug();
     for (const sg of FX.rounds) out.push({ key: sg.key, kind: 'fixed', icon: kIcon(sg), name: sugName(sg), period: periodLbl(sg.period), ranks: sg.ranks,
-      tasks: [...sg.tasks].sort(byDue).map((x) => { const c = comp(x), l = A.loc(x.locId), st = status(x); return { key: x.id, title: x.name, sub: [c ? (c.code ? c.code + ' – ' : '') + c.name : '', l ? A.tx(l, 'name') : ''].filter(Boolean).join(' · '), ranks: x.rank, st, due: x.dueDate ? fmtD(x.dueDate) : '', soon: st === 'overdue' || st === 'week' || fixedDue0(sg.period, x), marad: x.id, dd: x.dueDate || '', loc: x.locId || '' }; }) });
+      tasks: [...sg.tasks].sort(byDue).map((x) => distTask(x, (y) => fixedDue0(sg.period, y))) });
+    // v1.20: "Overige taken" – open taken die in geen enkele vaste ronde zitten (zelfde stapel als op het weekbord),
+    // oudste te late eerst; functiefilter (rankSel) zoals op het weekbord. Verstuurde taken blijven zichtbaar (afgetekend / opnieuw sturen).
+    const claimed = new Set(FX.rounds.flatMap((sg) => sg.tasks.map((x) => x.id))); const rs = rankSel();
+    const sentIds = new Set(); for (const s of Object.values(A.state.dist?.sent || {})) if (s.list === REST_KEY) { const r = A.state.routes.find((y) => y.id === (s.routeId || s.aid)); for (const st of r?.steps || []) if (st.marad?.id) sentIds.add(st.marad.id); }
+    const rest = m.tasks.filter((x) => !claimed.has(x.id) && (sentIds.has(x.id) || (rankOk(x, rs) && ['overdue', 'week', 'month'].includes(status(x))))).sort(byDue);
+    out.push({ key: REST_KEY, kind: 'rest', icon: '🗂', name: t('Overige taken'), period: t('niet in een vaste ronde'), ranks: [...new Set(rest.flatMap((x) => x.rank))],
+      tasks: rest.map((x) => distTask(x, (y) => ['overdue', 'week'].includes(status(y)))) });
   }
+  // v1.20: "Eigen taken" – zelf aangemaakte taken (geen MARAD), via ＋ Nieuwe taak in Taken verdelen
+  const ct = (A.state.dist?.custom?.tasks || []).filter((x) => !x.hidden);
+  out.push({ key: CUSTOM_KEY, kind: 'custom', icon: '✏️', name: t('Eigen taken'), period: '', ranks: [],
+    tasks: ct.map((x) => { const l = A.loc(x.locId); return { key: x.id, title: x.title, sub: [t('✏️ Eigen taak'), l ? A.tx(l, 'name') : ''].filter(Boolean).join(' · '), ranks: [], st: 'none', due: '', soon: true, custom: true, dd: String(x.createdAt || '').slice(0, 10), loc: x.locId || '' }; }) });
   for (const r of A.state.routes.filter((x) => !x.templateId && !x.importedAt && x.source !== 'dist' && x.steps.length)) {
     out.push({ key: 'r:' + r.id, kind: 'route', icon: '🧭', name: A.tx(r, 'name'), period: '', ranks: [], routeId: r.id,
       tasks: r.steps.map((st) => { const l = A.loc(st.locationId); const mx = st.marad?.id && m?.tasks?.find((y) => y.id === st.marad.id); return { key: st.id, title: A.tx(st, 'title'), sub: l ? A.tx(l, 'name') : '', ranks: mx ? mx.rank : [], st: mx ? status(mx) : 'none', due: mx?.dueDate ? fmtD(mx.dueDate) : '', soon: true, step: st.id, dd: mx?.dueDate || '' }; }) });
@@ -395,8 +409,23 @@ export function distRoute(items, { name, assignee = '' }) {
     const src = A.state.routes.find((x) => x.id === i.routeId)?.steps.find((y) => y.id === i.step); if (!src) continue;
     const id = A.rid(); r.steps.push({ ...JSON.parse(JSON.stringify(src)), id, fromStep: i.step }); extra.set(id, { st: i.st, dd: i.dd });
   }
+  // v1.20: eigen taken – volledige stapgegevens in de route (bemanning v1.17–1.19 heeft geen MARAD-opzoeking nodig)
+  for (const i of items.filter((y) => y.custom)) {
+    const c = (A.state.dist?.custom?.tasks || []).find((x) => x.id === i.key); if (!c) continue;
+    const id = A.rid(); r.steps.push(customStep(c, id)); extra.set(id, { st: i.st, dd: i.dd });
+  }
   r.steps = tacticalOrder(r.steps, extra);
   return r;
+}
+/** Locatie "Algemeen" (alleen aangemaakt als een eigen taak geen vaste plek heeft). */
+function generalLoc() {
+  const id = 'l-algemeen'; if (!A.state.locations.some((l) => l.id === id)) A.state.locations.push({ id, deck: A.state.decks[0]?.id || '', name: 'Algemeen', x: 50, z: 50, w: 0, note: '', tr: { en: { name: 'General' }, id: { name: 'Umum' } } });
+  return id;
+}
+export function customStep(c, id) {
+  const fields = [{ id: 'f-ok', label: 'Uitgevoerd', type: 'check', required: true, tr: { en: { label: 'Done' }, id: { label: 'Selesai' } } }];
+  if (c.measure?.label) fields.push({ id: 'f-m', label: c.measure.label, type: c.measure.type === 'text' ? 'text' : 'number', unit: c.measure.unit || '' });
+  return { id, locationId: c.locId && A.loc(c.locId) ? c.locId : generalLoc(), title: c.title, instruction: c.note || '', fields, source: 'custom', custom: c.id, fromStep: c.id };
 }
 /** Urgentie: te laat → ≤ 7 d → ≤ 30 d → later → draaiuren → geen datum; binnen status op vervaldatum (meest te laat eerst). */
 export const urgency = (x) => [ORDER[x.st] ?? 5, x.dd || '9999'];
@@ -528,9 +557,9 @@ function boardHTML({ sent = [], busy = [], doneAfter = () => false } = {}) {
       <span class="wc-ic" aria-hidden="true">${x.icon}</span>
       <span class="wc-body"><b class="wc-name">${A.esc(x.name)}</b><span class="wc-meta">${periodLbl(x.period)}${x.done ? ' · ' + t('{n} deze week ingehaald', { n: x.done }) : ''}</span>${who(x.key) ? `<span class="wc-per">${who(x.key)}</span>` : ''}</span>
       <span class="wc-side"><span class="wc-count"><b>${x.open}</b><small>${t('te laat')}</small></span>${size(x.open)}</span></button>`;
-  if (B.rest) h += `<button class="wcard pile rest" data-act="mQuickGo" data-v="overdue" data-k-board="rest">
+  if (B.rest) h += `<button class="wcard pile rest" data-act="distOpen" data-k="${REST_KEY}" data-k-board="rest">
       <span class="wc-ic" aria-hidden="true">🗂</span>
-      <span class="wc-body"><b class="wc-name">${t('Overige taken')}</b><span class="wc-meta">${t('niet in een vaste ronde · via Onderhoud')}</span></span>
+      <span class="wc-body"><b class="wc-name">${t('Overige taken')}</b><span class="wc-meta">${t('niet in een vaste ronde · Taken verdelen')}</span>${who(REST_KEY) ? `<span class="wc-per">${who(REST_KEY)}</span>` : ''}</span>
       <span class="wc-side"><span class="wc-count"><b>${B.rest}</b><small>${t('te laat')}</small></span>${size(B.rest)}</span></button>`;
   h += `</div></section>`;
   return h;

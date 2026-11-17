@@ -1,9 +1,9 @@
 // Service worker: alles offline beschikbaar (per versie vooraf in de cache) + Background Sync voor de outbox.
 importScripts('./js/outbox-core.js');
-const VERSION = 'schiproute-v1.19.0';
+const VERSION = 'schiproute-v1.20.0';
 const ASSETS = [
   './', './index.html', './manifest.webmanifest', './css/app.css',
-  './js/app.js', './js/outbox-core.js', './js/i18n.js', './js/i18n-dict.js', './js/marad.js', './js/maint.js', './js/oil.js', './js/ranks.js', './js/dist.js', './js/link.js', './js/suggest.js', './vendor/xlsx.mini.min.js', './data/marad.enc.json', './js/store.js', './js/seed.js', './js/planner.js', './js/share.js', './js/shipmap.js',
+  './js/app.js', './js/outbox-core.js', './js/i18n.js', './js/i18n-dict.js', './js/marad.js', './js/maint.js', './js/oil.js', './js/ranks.js', './js/dist.js', './js/link.js', './js/suggest.js', './vendor/xlsx.mini.min.js', './data/marad.enc.json', './js/store.js', './js/seed.js', './js/planner.js', './js/share.js', './js/shipmap.js', './js/export.js',
   './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png', './icons/apple-touch-icon.png',
 ];
 // v1.18 – veilig bijwerken terwijl de bemanning bezig is:

@@ -11,7 +11,7 @@ import { RANK_IDS, RANK_ICON, normRank, rankLabel } from './ranks.js';
 import * as RK from './ranks.js';
 const NO_MARAD = RK.NO_MARAD || ['Bosun', 'Stagiair']; // namespace-import: geen harde fout als een oudere ranks.js in de cache staat
 
-const APP_VERSION = '1.19.0';
+const APP_VERSION = '1.20.0';
 const TEST = self.__SRTEST || {}; // alleen tests: { noSplash, noProfile }
 const OB = self.OutboxCore;
 const $ = (s, el = document) => el.querySelector(s);
@@ -179,7 +179,7 @@ function appMenu() {
     ${it('goTab', 'kaart', '🚢', t('Kaart'))}${it('goTab', 'locaties', '📍', t('Locaties'))}
     ${it('goTab', 'historie', '📋', t('Historie (eigen rondes)'))}${it('newObs', '', '👁', t('Eigen observatie'))}
     ${it('goDist', '', '📋', t('Taken verdelen'))}${it('goProgress', '', '📊', t('Voortgang'))}${it('pairSheet', '', '🔗', t('Iemand koppelen'))}${state.maint ? '' : it('goPair', '', '📲', t('Koppelen met Beheer'))}${it('goRanks', '', '🎖', t('Rangen'))}${it('profileEdit', '', '👤', t('Profiel'))}
-    ${it('openOutbox', '', '📤', t('Outbox'))}${it('langMenu', '', '🌐', t('Taal · Language · Bahasa'))}
+    ${it('stateExport', '', '📦', t('Stand exporteren'))}${it('openOutbox', '', '📤', t('Outbox'))}${it('langMenu', '', '🌐', t('Taal · Language · Bahasa'))}
     ${it('goTab', 'meer', '⚙️', t('Instellingen, personen, PIN, modus'))}${state.maint ? it('mLock', '', '🔒', t('Vergrendelen')) : it('mUnlockSheet', '', '🔓', t('Ontgrendelen'))}
   </div><p class="muted small">${t('Versie')} ${APP_VERSION}</p>`, { menu: true });
 }
@@ -829,6 +829,8 @@ function renderRunDone() {
 }
 
 // ---------- acties ----------
+const XST = {}; // v1.20: export-hulpjes (blijft bewaard tussen klikken)
+const XA = () => Object.assign(XST, { state, MT, LINK, DIST, OIL, APP_VERSION, isCrew, isIOS, isStandalone, esc, openSheet, closeSheet, toast });
 const actions = {
   edLang: (a) => { editLang = a.dataset.v; $('#edBody').innerHTML = taskEditorHTML(); },
   langMenu: () => openSheet(`<h2>${t('🌐 Taal · Language · Bahasa')}</h2><div class="stack">${Object.entries(LANGS).map(([k, v]) => `<button class="btn big ${k === getLang() ? 'primary' : ''}" data-act="setLang" data-v="${k}">${v.flag} ${v.name}</button>`).join('')}</div>`),
@@ -1651,6 +1653,10 @@ Object.assign(actions, {
   seenRun: (a) => { const r = state.runs.find((x) => x.id === a.dataset.id); if (r?.received) { r.received.seenAt = new Date().toISOString(); save(); render(); } },
   seenAll: () => { const now = new Date().toISOString(); for (const r of received()) r.received.seenAt ||= now; save(); render(); toast(t('Alles gemarkeerd als gezien')); },
   openRunH: (a) => go('historie', { runId: a.dataset.id }),
+  // v1.20: stand exporteren – module pas laden bij gebruik (gemengde caches kunnen de app zo nooit breken)
+  stateExport: async () => { closeSheet(); try { const X = await import('./export.js'); await X.runExport(XA()); } catch (e) { console.warn('export', e); toast(t('Exporteren lukte niet: {msg}', { msg: e.message }), 5000); } },
+  stateExportAgain: async () => { const X = await import('./export.js'); X.downloadLast(XA()); },
+  stateExportShare: async () => { const X = await import('./export.js'); await X.shareLast(XA()); },
   goMaradDone: () => { closeSheet(); MT.actions.mView({ dataset: { v: 'done' } }); go('onderhoud'); },
   goSug: () => { MT.actions.mView({ dataset: { v: 'sug' } }); go('onderhoud'); },
   ntfyPoll: () => pollNtfy(true),
@@ -1729,4 +1735,4 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   navigator.serviceWorker.register('./sw.js').then(() => (window.__swRegistered = true)).catch((e) => console.warn('SW', e));
 }
 refreshOutbox().then(() => flushNow());
-window.__app = { state, save, view: () => view, flushNow, refreshOutbox, MT, pollNtfy, LINK, isIOS, isStandalone, openProfile, go: (...x) => go(...x) };
+window.__app = { APP_VERSION, state, save, view: () => view, flushNow, refreshOutbox, MT, pollNtfy, LINK, isIOS, isStandalone, openProfile, go: (...x) => go(...x) };

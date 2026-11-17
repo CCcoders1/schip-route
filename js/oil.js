@@ -32,7 +32,7 @@ export function initOil(api) {
   hooks.beforePackage = (r) => { if (r.steps?.some((s) => (s.fields || []).some((f) => f.type === 'oil' || f.type === 'oilinv')) && M()?.oilRef) r.oilRef = buildRef(); };
   document.addEventListener('change', onChange);
   document.addEventListener('input', onInput);
-  return { view, actions, fieldHTML, fmtValue, applyRun, ingest, hasRef, flushPending, crewCard, summary };
+  return { view, actions, fieldHTML, fmtValue, applyRun, ingest, hasRef, flushPending, crewCard, summary, oilState: () => ST() };
 }
 
 // ---------- data ----------
