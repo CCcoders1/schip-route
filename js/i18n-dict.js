@@ -1253,7 +1253,18 @@ export const DICT = {
 "✔ Alles in MARAD gezet": "✔ All entered in MARAD",
 "📅 Per datum": "📅 By date",
 "🔍 Zoek taak, component of code": "🔍 Search task, component or code",
-"🔧 Per component": "🔧 By component"
+"🔧 Per component": "🔧 By component",
+"Laptop gekoppeld": "Laptop linked",
+"Mail deze link naar jezelf en open hem op je laptop. Hou hem voor jezelf: wie de link heeft, kan de lijst lezen.": "Email this link to yourself and open it on your laptop. Keep it private: anyone with the link can read the list.",
+"Laptop-link tonen": "Show laptop link",
+"Afvinken op de laptop komt hier binnen zodra deze telefoon internet heeft en de app open is.": "Ticks on the laptop arrive here once this phone has internet and the app is open.",
+"Laptop koppelen (MARAD afvinken)": "Link laptop (MARAD check-off)",
+"Nieuwe versie klaar – tik om te laden": "New version ready – tap to load",
+"Hier staat wat in de app is afgemeld, om in MARAD in te voeren. Ontgrendel eerst MARAD op dit toestel.": "This shows what was signed off in the app, to enter in MARAD. Unlock MARAD on this device first.",
+"Is dit je laptop? Plak hier de laptop-link van de telefoon": "Is this your laptop? Paste the laptop link from the phone here",
+"Op de laptop: plak de laptop-link van de telefoon.": "On the laptop: paste the laptop link from the phone.",
+"Is dit het Beheer-toestel? Ontgrendel MARAD": "Is this the Manager device? Unlock MARAD",
+"Tik om te kopiëren": "Tap to copy"
 },
 "id": {
 "(Android/iPhone), tik op": "(Android/iPhone), ketuk",
@@ -2508,6 +2519,17 @@ export const DICT = {
 "✔ Alles in MARAD gezet": "✔ Semua sudah di MARAD",
 "📅 Per datum": "📅 Per tanggal",
 "🔍 Zoek taak, component of code": "🔍 Cari tugas, komponen atau kode",
-"🔧 Per component": "🔧 Per komponen"
+"🔧 Per component": "🔧 Per komponen",
+"Laptop gekoppeld": "Laptop terhubung",
+"Mail deze link naar jezelf en open hem op je laptop. Hou hem voor jezelf: wie de link heeft, kan de lijst lezen.": "Kirim tautan ini ke email Anda sendiri dan buka di laptop. Simpan untuk Anda sendiri: siapa pun yang punya tautan bisa membaca daftarnya.",
+"Laptop-link tonen": "Tampilkan tautan laptop",
+"Afvinken op de laptop komt hier binnen zodra deze telefoon internet heeft en de app open is.": "Centang di laptop masuk ke sini begitu ponsel ini online dan aplikasinya terbuka.",
+"Laptop koppelen (MARAD afvinken)": "Hubungkan laptop (centang MARAD)",
+"Nieuwe versie klaar – tik om te laden": "Versi baru siap – ketuk untuk memuat",
+"Hier staat wat in de app is afgemeld, om in MARAD in te voeren. Ontgrendel eerst MARAD op dit toestel.": "Di sini tampil apa yang diselesaikan di aplikasi, untuk dimasukkan ke MARAD. Buka kunci MARAD di perangkat ini dulu.",
+"Is dit je laptop? Plak hier de laptop-link van de telefoon": "Ini laptop Anda? Tempel tautan laptop dari ponsel di sini",
+"Op de laptop: plak de laptop-link van de telefoon.": "Di laptop: tempel tautan laptop dari ponsel.",
+"Is dit het Beheer-toestel? Ontgrendel MARAD": "Ini perangkat Pengelola? Buka kunci MARAD",
+"Tik om te kopiëren": "Ketuk untuk menyalin"
 }
 };

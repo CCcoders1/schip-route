@@ -12,6 +12,8 @@ const esc = (s) => A.esc(s);
 const F = { show: 'open', group: 'date', q: '', by: '' };
 const M = () => A.state.maint;
 const AF = () => A.state.afv || null;
+/** Beheer-toestel (ook als MARAD op slot zit): eigen naam/kanaal, gekoppelde mensen, rondes of eerder ontgrendeld. Een verse laptop heeft niets van dit. */
+const isBeheerDevice = () => { const s = A.state; return !A.isCrew() && (!!s.settings.userName || (!!s.settings.ntfyTopic && !s.settings.ntfyTopicAuto) || !!s.maint || (s.runs || []).length > 0 || (s.contacts || []).some((c) => c.deviceId) || !!localStorage.getItem('schiproute.maintSeen')); };
 const isViewer = () => AF()?.role === 'viewer' && !M()?.tasks;
 const fmtD = (iso) => (iso ? new Date(String(iso).slice(0, 10) + 'T12:00:00').toLocaleDateString(LOCALES[getLang()], { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' }) : '—');
 const dayKey = (d = new Date()) => new Date(d.getTime() - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
@@ -155,7 +157,7 @@ const byComp = (a, b) => (a.code || '~').localeCompare(b.code || '~', undefined,
 function rowHTML(r) {
   const dl = r.due && r.done ? Math.round((new Date(r.done) - new Date(r.due)) / 864e5) : null;
   return `<li class="afr ${r.entered ? 'in' : ''} ${r.pend ? 'pend' : ''}" data-id="${esc(r.id)}"><label class="afchk"><input type="checkbox" data-afv="${esc(r.id)}" ${r.entered ? 'checked' : ''} aria-label="${t('In MARAD gezet')}"></label>
-    <div class="afmain"><b class="aft">${esc(r.task)}</b><span class="afc">${r.code ? `<code>${esc(r.code)}</code> ` : ''}${esc(r.comp)}</span></div>
+    <div class="afmain"><b class="aft" role="button" tabindex="0" data-act="afCopyName" data-id="${esc(r.id)}" title="${t('Tik om te kopiëren')}">${esc(r.task)} <span class="afcp" aria-hidden="true">📋</span></b><span class="afc">${r.code ? `<code role="button" data-act="afCopyCode" data-id="${esc(r.id)}" title="${t('Tik om te kopiëren')}">${esc(r.code)}</code> ` : ''}${esc(r.comp)}</span></div>
     <div class="afdate"><b>✔ ${esc(fmtD(r.done))}</b><small>👤 ${esc(r.by || '—')}${r.round ? ' · 🧭 ' + esc(r.round) : ''}</small></div>
     <div class="afdue"><small>${t('Vervaldatum')}: <b class="${dl > 0 ? 'cr' : ''}">${esc(fmtD(r.due))}</b>${dl > 0 ? ` (${t('{n} d te laat gedaan', { n: dl })})` : ''}</small><small>${t('Volgende')}: ${esc(fmtD(r.next))}${r.iv ? ' · ' + esc(r.iv) : ''}</small></div>
     ${r.vals.length || r.rem || r.note ? `<div class="afvals">${r.vals.length ? `<small>📏 ${r.vals.map(esc).join(' · ')}</small>` : ''}${r.rem ? `<small>📝 ${esc(r.rem)}</small>` : ''}${r.note ? `<small>💬 ${esc(r.note)}</small>` : ''}</div>` : ''}
@@ -172,24 +174,30 @@ function listHTML(all) {
   return [...by].map(([k, rs]) => `<h3 class="afg">📅 ${esc(fmtD(k))} <small>(${rs.length})</small></h3><ul class="aflist">${rs.map(rowHTML).join('')}</ul>`).join('');
 }
 function laptopHTML() {
-  const af = AF();
-  if (af?.role === 'phone' && af.linked !== undefined) return `<details class="card aflap"><summary>💻 ${t('Op de laptop')} <small class="muted">· ${af.pubAt ? t('lijst bijgewerkt {d}', { d: A.fmtDT(new Date(af.pubAt).toISOString()) }) : t('gekoppeld')}</small></summary>
-    <p class="muted small">${t('Open de laptop-link in de browser op je laptop. Afvinken op de laptop komt hier binnen zodra deze telefoon internet heeft en de app open is.')}</p>
-    <div class="stack"><button class="btn" data-act="afLink">📋 ${t('Kopieer laptop-link')}</button><button class="btn ghost small" data-act="afUnlink">✕ ${t('Laptop ontkoppelen')}</button></div></details>`;
-  return `<details class="card aflap"><summary>💻 ${t('Ook op de laptop (naast MARAD)')}</summary><p class="muted small">${t('Maak een laptop-link en open die op je laptop. De lijst gaat versleuteld via je eigen meldingskanaal; alleen wie de link heeft kan hem lezen. Geen account nodig.')}</p>
-    <button class="btn primary" data-act="afLink">💻 ${t('Laptop-link maken')}</button></details>`;
+  const af = AF(); const on = af?.role === 'phone' && af.linked;
+  if (!on) return `<section class="card aflap aftop"><button class="btn primary big" data-act="afLink">💻 ${t('Laptop-link maken')}</button><p class="muted small">${t('Maak een laptop-link en open die op je laptop. De lijst gaat versleuteld via je eigen meldingskanaal; alleen wie de link heeft kan hem lezen. Geen account nodig.')}</p></section>`;
+  let h = `<section class="card aflap aftop"><div class="row"><b>💻 ${t('Laptop gekoppeld')}</b><small class="muted">${af.pubAt ? t('lijst bijgewerkt {d}', { d: A.fmtDT(new Date(af.pubAt).toISOString()) }) : ''}</small></div>`;
+  if (F.showLink) h += `<p class="small">${t('Mail deze link naar jezelf en open hem op je laptop. Hou hem voor jezelf: wie de link heeft, kan de lijst lezen.')}</p><textarea id="afLinkTxt" class="aflink" rows="4" readonly>${esc(linkOf(af))}</textarea>
+    <button class="btn primary big" data-act="afCopy">📋 ${t('Kopiëren')}</button>`;
+  else h += `<button class="btn" data-act="afShowLink">💻 ${t('Laptop-link tonen')}</button>`;
+  h += `<p class="muted small">${t('Afvinken op de laptop komt hier binnen zodra deze telefoon internet heeft en de app open is.')} <button class="btn small ghost" data-act="afUnlink">✕ ${t('Laptop ontkoppelen')}</button></p></section>`;
+  return h;
 }
 export function view() {
   const viewer = isViewer(); const af = AF();
   let h = A.header(t('MARAD afvinken'), !viewer);
   if (!viewer && !M()?.signoffs) {
-    if (!M() && A.state.maint === undefined && !af) { /* nog geen gegevens */ }
-    return h + `<section class="card"><p>${t('Hier staat wat in de app is afgemeld, om in MARAD in te voeren.')}</p>${M() === null || !M() ? `<p class="muted">${t('Op het Beheer-toestel: ontgrendel eerst MARAD. Op de laptop: plak de laptop-link van de telefoon.')}</p>` : ''}
-      <label>${t('Laptop-link')}<textarea id="afIn" rows="3" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="https://…#afvinken=…"></textarea></label><div class="stack"><button class="btn primary" data-act="afPair">🔗 ${t('Koppelen')}</button></div></section>`;
+    const paste = `<label>${t('Laptop-link')}<textarea id="afIn" rows="3" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="https://…#afvinken=…"></textarea></label><div class="stack"><button class="btn primary" data-act="afPair">🔗 ${t('Koppelen')}</button></div>`;
+    if (!A.state.maint) A.MT.ensureMaint().then((m) => { if (m?.signoffs && A.view().tab === 'afvinken') A.render(); });
+    if (isBeheerDevice()) return h + `<p class="muted">${t('Hier staat wat in de app is afgemeld, om in MARAD in te voeren. Ontgrendel eerst MARAD op dit toestel.')}</p>${A.MT.unlockHTML()}
+      <details class="card afpaste"><summary>💻 ${t('Is dit je laptop? Plak hier de laptop-link van de telefoon')}</summary>${paste}</details>`;
+    return h + `<section class="card"><p>${t('Hier staat wat in de app is afgemeld, om in MARAD in te voeren.')}</p><p class="muted">${t('Op de laptop: plak de laptop-link van de telefoon.')}</p>${paste}</section>
+      <details class="card afpaste"><summary>🔓 ${t('Is dit het Beheer-toestel? Ontgrendel MARAD')}</summary>${A.MT.unlockHTML()}</details>`;
   }
   const all = rows(); const open = all.filter((r) => !r.entered).length; const today = dayKey();
   const todayIn = all.filter((r) => r.entered && dayKey(new Date(r.entered)) === today).length;
   if (viewer) h += `<p class="shipsub">💻 ${esc(af.snap?.ship || '')} · ${af.snap ? t('stand van de telefoon: {d}', { d: A.fmtDT(af.snap.gen) }) : t('wacht op de lijst van de telefoon…')} <button class="btn small ghost" data-act="afRefresh">🔄 ${t('Vernieuwen')}</button></p>`;
+  if (!viewer) h += laptopHTML();
   h += `<div class="mstats afstats"><button data-act="afShow" data-v="open" class="${F.show === 'open' ? 'on' : ''}"><b class="cr">${open}</b><small>${t('Nog in MARAD')}</small></button><button data-act="afShow" data-v="done" class="${F.show === 'done' ? 'on' : ''}"><b class="okc">${todayIn}</b><small>${t('Vandaag in MARAD gezet')}</small></button><button data-act="afShow" data-v="all" class="${F.show === 'all' ? 'on' : ''}"><b>${all.length}</b><small>${t('Alle afmeldingen')}</small></button></div>`;
   const sb = (k, l) => `<button class="${F.show === k ? 'on' : ''}" data-act="afShow" data-v="${k}">${l}</button>`, gb = (k, l) => `<button class="${F.group === k ? 'on' : ''}" data-act="afGroup" data-v="${k}">${l}</button>`;
   const people = [...new Set(all.map((r) => r.by).filter(Boolean))].sort();
@@ -197,18 +205,29 @@ export function view() {
     <input type="search" data-aff="q" value="${esc(F.q)}" placeholder="${t('🔍 Zoek taak, component of code')}"><select data-aff="by"><option value="">${t('Iedereen')}</option>${people.map((p) => `<option ${p === F.by ? 'selected' : ''}>${esc(p)}</option>`).join('')}</select></div>`;
   h += `<p class="muted small">${t('Vink een taak aan zodra je hem in MARAD hebt ingevoerd. Uitvinken zet hem terug.')}${viewer ? '' : ` <button class="btn small ghost" data-act="mExport" ${open ? '' : 'disabled'}>⬇ CSV</button> <button class="btn small ghost" data-act="mEntered" ${open ? '' : 'disabled'}>${t('✔ Alles in MARAD gezet')}</button>`}</p>`;
   h += `<div id="afList">${listHTML(all)}</div>`;
-  if (!viewer) h += laptopHTML();
-  else h += `<p class="muted small afnote">${t('Afvinken hier gaat naar de telefoon zodra die de app open heeft. Laptop ontkoppelen:')} <button class="btn small ghost" data-act="afForget">✕ ${t('Vergeten op deze laptop')}</button></p>`;
+  if (viewer) h += `<p class="muted small afnote">${t('Afvinken hier gaat naar de telefoon zodra die de app open heeft. Laptop ontkoppelen:')} <button class="btn small ghost" data-act="afForget">✕ ${t('Vergeten op deze laptop')}</button></p>`;
   return h;
 }
 function refresh() { const el = document.querySelector('#afList'); if (el) el.innerHTML = listHTML(rows()); }
 document.addEventListener('input', (e) => { const el = e.target; if (el.dataset?.aff) { F[el.dataset.aff] = el.value; refresh(); } });
 document.addEventListener('change', (e) => { const el = e.target; if (el.dataset?.afv) { tick(el.dataset.afv, el.checked).then(() => { if (!isViewer()) setTimeout(() => { if (A.view().tab === 'afvinken') A.render(); }, 600); }); } });
+async function copyQuick(text, el) {
+  let ok = false;
+  try { await navigator.clipboard.writeText(text); ok = true; } catch { /* niet-beveiligd / iOS */ }
+  if (!ok) { const ta = document.createElement('textarea'); ta.value = text; ta.setAttribute('readonly', ''); ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0'; document.body.append(ta); ta.select(); ta.setSelectionRange(0, text.length); try { ok = document.execCommand('copy'); } catch { /* */ } ta.remove(); }
+  A.toast(ok ? t('Gekopieerd ✔') : t('Kopiëren lukte niet'), 1500);
+  if (ok && el) { el.classList.add('copied'); setTimeout(() => el.classList.remove('copied'), 900); }
+  return ok;
+}
 export const actions = {
   afShow: (a) => { F.show = a.dataset.v; A.render(); },
   afGroup: (a) => { F.group = a.dataset.v; A.render(); },
   afRefresh: () => pollViewer(true),
-  afLink: async () => { const af = ensurePhone(); if (af.linked === undefined) af.linked = true; A.save(); await A.copyText(linkOf(af)); await publish(true); A.render(); A.toast(t('Laptop-link gekopieerd – open hem op je laptop'), 4000); },
+  afLink: async () => { const af = ensurePhone(); af.linked = true; A.save(); F.showLink = true; A.render(); scrollTo(0, 0); await publish(true); A.render(); },
+  afCopyName: (a) => { const r = rows().find((x) => x.id === a.dataset.id); if (r) copyQuick(r.task, a); },
+  afCopyCode: (a) => { const r = rows().find((x) => x.id === a.dataset.id); if (r?.code) copyQuick(r.code, a); },
+  afShowLink: () => { F.showLink = true; A.render(); },
+  afCopy: async () => { const af = AF(); if (!af) return; const el = document.querySelector('#afLinkTxt'); el?.select(); await A.copyText(linkOf(af)); A.toast(t('Laptop-link gekopieerd – open hem op je laptop'), 4000); },
   afUnlink: () => { if (!confirm(t('Laptop ontkoppelen? De laptop krijgt daarna geen nieuwe lijst meer.'))) return; delete A.state.afv; A.save(); A.render(); },
   afPair: () => { const o = readLinkCode(document.querySelector('#afIn')?.value); if (!o) return A.toast(t('Dat is geen geldige laptop-link.'), 3500); if (becomeViewer(o)) { A.go('afvinken'); A.toast(t('Gekoppeld – lijst wordt opgehaald'), 3000); } },
   afForget: () => { if (!confirm(t('De lijst en de koppeling van deze laptop wissen?'))) return; delete A.state.afv; A.save(); A.go('afvinken'); },

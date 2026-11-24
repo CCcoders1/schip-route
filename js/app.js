@@ -12,7 +12,7 @@ import { RANK_IDS, RANK_ICON, normRank, rankLabel } from './ranks.js';
 import * as RK from './ranks.js';
 const NO_MARAD = RK.NO_MARAD || ['Bosun', 'Stagiair']; // namespace-import: geen harde fout als een oudere ranks.js in de cache staat
 
-const APP_VERSION = '1.24.0';
+const APP_VERSION = '1.24.1';
 const TEST = self.__SRTEST || {}; // alleen tests: { noSplash, noProfile }
 const OB = self.OutboxCore;
 const $ = (s, el = document) => el.querySelector(s);
@@ -179,7 +179,7 @@ function viewToday() {
 function appMenu() {
   const it = (act, v, ico, label, extra = '') => `<button class="btn menuitem" data-act="${act}" ${v ? `data-v="${v}"` : ''} ${extra}>${ico} ${label}</button>`;
   openSheet(`<h2>☰ ${t('Menu')}</h2><div class="menugrid">
-    ${it('mWeekGo', '', '📅', t('Weekoverzicht'))}${it('goMaradDone', '', '✔', t('MARAD afvinken'))}
+    ${it('mWeekGo', '', '📅', t('Weekoverzicht'))}${it('goMaradDone', '', '✔', t('MARAD afvinken'))}${state.maint?.tasks ? it('goAfLaptop', '', '💻', t('Laptop koppelen (MARAD afvinken)')) : ''}
     ${it('goTab', 'kaart', '🚢', t('Kaart'))}${it('goTab', 'locaties', '📍', t('Locaties'))}
     ${it('goTab', 'historie', '📋', t('Historie (eigen rondes)'))}${it('newObs', '', '👁', t('Eigen observatie'))}
     ${it('goDist', '', '📋', t('Taken verdelen'))}${it('goProgress', '', '📊', t('Voortgang'))}${it('pairSheet', '', '🔗', t('Iemand koppelen'))}${state.maint ? '' : it('goPair', '', '📲', t('Koppelen met Beheer'))}${it('goRanks', '', '🎖', t('Rangen'))}${it('profileEdit', '', '👤', t('Profiel'))}
@@ -471,7 +471,15 @@ function viewMore() {
 }
 
 const fsToggle = (tog) => (isIOS() ? `<p class="muted small">${t('📱 iPhone: schermvullend werkt door de app vanaf het beginscherm te starten (geen aparte schakelaar nodig).')}</p>` : tog('fullscreen', t('Ronde schermvullend starten')));
+let updReady = false;
+function updBar() {
+  let el = $('#updbar'); const show = updReady && !state.activeRun && $('#run').hidden;
+  if (!show) { if (el) el.hidden = true; return; }
+  if (!el) { el = document.createElement('button'); el.id = 'updbar'; el.addEventListener('click', () => location.reload()); document.body.append(el); }
+  el.textContent = '⬆ ' + t('Nieuwe versie klaar – tik om te laden'); el.hidden = false;
+}
 function afterRender() {
+  updBar();
   const list = $('#steps');
   if (list) bindDrag(list, (ids) => {
     const r = route(view.routeId);
@@ -1782,6 +1790,7 @@ Object.assign(actions, {
   stateExportShare: async () => { const X = await import('./export.js'); await X.shareLast(XA()); },
   goMaradDone: () => { closeSheet(); go('afvinken'); },
   goAfvinken: () => { closeSheet(); go('afvinken'); },
+  goAfLaptop: () => { closeSheet(); go('afvinken'); if (state.maint?.signoffs) AFV.actions.afLink(); },
   goSug: () => { MT.actions.mView({ dataset: { v: 'sug' } }); go('onderhoud'); },
   ntfyPoll: () => pollNtfy(true),
   repClip: async () => { let txt = ''; try { txt = await navigator.clipboard.readText(); } catch { /* geen toegang */ } if (!(await handlePasted(txt))) { toast(t('Niets bruikbaars op het klembord – plak in het vak (lang indrukken → Plak).'), 4000); $('#repPaste')?.focus(); } },
@@ -1822,7 +1831,7 @@ const OIL = initOil({ askProfile: (fn) => askProfile(fn), state, save, rid, esc,
 Object.assign(actions, OIL.actions);
 const LINK = initLink({ MT, state, save, esc, header, openSheet, closeSheet, toast, render: () => render(), go: (...x) => go(...x), view: () => view, rid, fmtDT, isCrew, copyText, queueQuiet, importPackage: (p, c) => importPackage(p, c), mergePlaces: (p) => mergePlaces(p), autoImportReport: (...x) => autoImportReport(...x) });
 Object.assign(actions, LINK.actions);
-const AFV = initAfvink({ MT, LINK, state, save, esc, header, toast, render: () => render(), go: (...x) => go(...x), view: () => view, rid, fmtDT, copyText, queueQuiet });
+const AFV = initAfvink({ MT, LINK, isCrew: () => isCrew(), state, save, esc, header, toast, render: () => render(), go: (...x) => go(...x), view: () => view, rid, fmtDT, copyText, queueQuiet });
 Object.assign(actions, AFV.actions);
 actions.mEntered = () => { MT.actions.mEntered(); AFV.publish(); };
 const DIST = initDist({ LINK, state, save, toastAct, startRun: (id) => startRun(id), esc, header, openSheet, closeSheet, toast, render: () => render(), go: (...x) => go(...x), view: () => view, MT, rid, fmtDT, tx: (o, k) => tx(o, k), loc: (id) => loc(id) });
@@ -1832,7 +1841,7 @@ Object.assign(actions, DIST.actions);
 if (!state.settings.lang) { state.settings.lang = getLang(); save(); }
 // Eerste start via een gedeelde route-link → bemanning; anders (eigen toestel / bestaande gegevens) → beheer.
 if (!state.settings.mode) { state.settings.mode = /route=/.test(location.hash) && !state.runs.length ? 'bemanning' : 'beheer'; save(); }
-if (!isCrew()) MT.ensureMaint().then((m) => { if (m?.tasks && ['routes', 'onderhoud', 'vandaag'].includes(view.tab || 'vandaag') && !view.routeId && $('#sheet').hidden) render(); });
+if (!isCrew()) MT.ensureMaint().then((m) => { if (m?.tasks && ['routes', 'onderhoud', 'vandaag', 'afvinken'].includes(view.tab || 'vandaag') && !view.routeId && $('#sheet').hidden) render(); });
 render();
 checkHash();
 // iPhone in Safari (niet vanaf beginscherm): installatie-uitleg automatisch tonen (eenmaal per sessie, niet bij een gedeelde link)
@@ -1864,7 +1873,10 @@ if (document.documentElement.classList.contains('splash')) {
 setTimeout(maybePoll, 1500);
 if (state.activeRun && state.settings.resumeOnStart && !location.hash.includes('route=')) { $('#run').hidden = false; document.body.classList.add('running'); renderRun(true); }
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-  navigator.serviceWorker.register('./sw.js').then(() => (window.__swRegistered = true)).catch((e) => console.warn('SW', e));
+  navigator.serviceWorker.register('./sw.js').then((reg) => { window.__swRegistered = true; document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') reg.update().catch(() => {}); }); }).catch((e) => console.warn('SW', e));
+  // v1.24.1: nieuwe versie geladen in de achtergrond → kleine balk "tik om te laden", alleen als er geen ronde loopt (nooit vanzelf herladen)
+  const hadCtl = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener('controllerchange', () => { if (hadCtl) { updReady = true; updBar(); } });
 }
 refreshOutbox().then(() => flushNow());
-window.__app = { APP_VERSION, AFVpoll: () => AFV.pollPhone(), AFVpollV: () => AFV.pollViewer(), state, save, view: () => view, flushNow, refreshOutbox, MT, pollNtfy, LINK, isIOS, isStandalone, openProfile, go: (...x) => go(...x) };
+window.__app = { APP_VERSION, updTest: (on = true) => { updReady = on; updBar(); }, AFVpoll: () => AFV.pollPhone(), AFVpollV: () => AFV.pollViewer(), state, save, view: () => view, flushNow, refreshOutbox, MT, pollNtfy, LINK, isIOS, isStandalone, openProfile, go: (...x) => go(...x) };

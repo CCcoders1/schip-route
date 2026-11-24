@@ -59,7 +59,7 @@ export function initMaint(api) {
   $f('#fileMarad')?.addEventListener('change', async (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) readFile(f); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.id === 'mPw') { e.preventDefault(); actions.mUnlock(); } });
   if (A.legacyMaint) migrateLegacy(A.legacyMaint);
-  return { rankChips, distLists, distRoute, tacticalOrder, byUrgency, rankOverview, rankRoundsHTML, view, actions, applyRun, applyPending, ensureMaint, runExtra, maradFields, persist, refreshTemplates, rankNames, templateInfo, sugCount, todayHTML, weekBoard, selfSignoff, undoSignoffs, reopenSignoffs, undoReopen, signoffOf, startFixed, needsReunlock, slimDefault, weekStats, rankPack, crewView };
+  return { unlockHTML: () => unlockHTML(), rankChips, distLists, distRoute, tacticalOrder, byUrgency, rankOverview, rankRoundsHTML, view, actions, applyRun, applyPending, ensureMaint, runExtra, maradFields, persist, refreshTemplates, rankNames, templateInfo, sugCount, todayHTML, weekBoard, selfSignoff, undoSignoffs, reopenSignoffs, undoReopen, signoffOf, startFixed, needsReunlock, slimDefault, weekStats, rankPack, crewView };
 }
 const $f = (s) => document.querySelector(s);
 
@@ -872,11 +872,11 @@ export const actions = {
       err.textContent = msg === 'pw' ? t('Onjuist wachtwoord. Probeer het opnieuw.') + (f.n + 1 >= 2 ? ' ' + t('(volgende poging na {s} s)', { s: Math.min(2 ** f.n, 15) }) : '') : t('Kon de versleutelde gegevens niet laden (eerste keer online openen).');
       if (navigator.vibrate) navigator.vibrate([60, 40, 60]); inp.focus(); return;
     }
-    localStorage.removeItem(FKEY);
+    localStorage.removeItem(FKEY); localStorage.setItem('schiproute.maintSeen', '1');
     await ensureMaint();
     const r = mergeMarad(M() || null, data, { autoLoc, file: data.file || 'marad-export' });
     A.state.maint = r.maint; A.state.maint.source = 'encrypted'; loaded = true; relink();
-    S(); afterLoad(false); A.closeSheet(); A.go('onderhoud');
+    S(); afterLoad(false); A.closeSheet(); A.go(document.body.classList.contains('wide') ? 'afvinken' : 'onderhoud');
     A.toast(t('Ontgrendeld – {n} taken staan nu op dit toestel', { n: r.maint.tasks.length }), 4000);
   },
   mLock: async () => {
