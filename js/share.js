@@ -1,10 +1,10 @@
 // Routes delen zonder server: gecomprimeerd in de URL-hash, of als .json-bestand.
-const b64u = (bytes) => {
+export const b64u = (bytes) => {
   let s = '';
   for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
   return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 };
-const unb64u = (str) => {
+export const unb64u = (str) => {
   const s = atob(str.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((str.length + 3) % 4));
   return Uint8Array.from(s, (c) => c.charCodeAt(0));
 };

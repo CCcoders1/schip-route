@@ -290,9 +290,8 @@ export function view() {
   h += `<div class="mstats"><button data-act="mQuick" data-v="overdue">${dot('overdue')}<b>${c.overdue}</b><small>${t('Te laat')}</small></button><button data-act="mQuick" data-v="week">${dot('week')}<b>${c.week}</b><small>${t('≤ 7 d')}</small></button><button data-act="mQuick" data-v="month">${dot('month')}<b>${c.month}</b><small>${t('≤ 30 d')}</small></button><button data-act="mQuick" data-v="all">${dot('later')}<b>${c.later}</b><small>${t('Later')}</small></button><button data-act="mQuick" data-v="all">${dot('hours')}<b>${c.hours}</b><small>${t('Draaiuren')}</small></button></div>`;
   if (rs.size) h += `<p class="muted small">👤 ${A.esc(rankLabels([...rs]))} · ${t('{n} van {m} taken', { n: mine.length, m: m.tasks.length })}</p>`;
   const vb = (k, lbl) => `<button class="${F.view === k ? 'on' : ''}" data-act="mView" data-v="${k}">${lbl}</button>`;
-  h += `<div class="seg mviews">${vb('tree', t('🌳 Boom'))}${vb('list', t('☰ Lijst'))}${vb('sug', t('💡 Voorstel'))}${vb('week', t('📅 Week'))}${vb('done', t('✔ Afgemeld') + (open_ ? ` (${open_})` : ''))}</div>`;
+  h += `<div class="seg mviews">${vb('tree', t('🌳 Boom'))}${vb('list', t('☰ Lijst'))}${vb('sug', t('💡 Voorstel'))}${vb('week', t('📅 Week'))}<button data-act="goAfvinken">${t('✔ Afgemeld') + (open_ ? ` (${open_})` : '')}</button></div>`;
   if (F.view === 'week') return h + weekHTML();
-  if (F.view === 'done') return h + doneHTML();
   if (F.view === 'sug') return h + sugHTML();
   const stb = (k, lbl) => `<button class="${F.st === k ? 'on' : ''}" data-act="mSt" data-v="${k}">${lbl}</button>`;
   h += `<div class="seg mst">${stb('overdue', t('Te laat'))}${stb('week', t('7 dagen'))}${stb('month', t('30 dagen'))}${stb('all', t('Alles'))}</div>`;
@@ -717,16 +716,6 @@ function weekHTML() {
   return h;
 }
 
-function doneHTML() {
-  const m = M(); const xs = [...m.signoffs].reverse();
-  const openS = xs.filter((s) => !s.enteredInMarad), arch = xs.filter((s) => s.enteredInMarad);
-  let h = `<p class="infobox">${t('ℹ️ De app schrijft niet terug naar MARAD. Voer deze afmeldingen zelf in MARAD in en zet ze daarna op "ingevoerd".')}</p>`;
-  h += `<div class="row"><button class="btn primary" data-act="mExport" ${openS.length ? '' : 'disabled'}>${t('⬇ CSV "Afgemeld voor MARAD"')}</button><button class="btn" data-act="mEntered" ${openS.length ? '' : 'disabled'}>${t('✔ Alles ingevoerd in MARAD')}</button></div>`;
-  const row = (s) => `<li><b>${A.esc(s.task)}</b><small>${A.esc(s.component)}</small><small>✔ ${fmtD(s.doneDate)}${s.by ? ' · 👤 ' + A.esc(s.by) : ''}${s.runHours != null ? ' · ⏱ ' + fmtN(s.runHours) + ' h' : ''}${s.nextDue ? ' · ' + t('volgende: {d}', { d: fmtD(s.nextDue) }) : ''}</small>${s.remarks ? `<p class="note">📝 ${A.esc(s.remarks)}</p>` : ''}${s.enteredInMarad ? `<small class="okc">${t('ingevoerd in MARAD')}</small>` : `<button class="btn small ghost" data-act="mUndo" data-id="${s.id}">${t('↶ Ongedaan maken')}</button>`}</li>`;
-  h += `<h3 class="sec">${t('Nog in MARAD invoeren ({n})', { n: openS.length })}</h3><ul class="signoffs">${openS.map(row).join('') || `<li class="muted">${t('Niets af te melden. Taken uit een ronde of rapport verschijnen hier.')}</li>`}</ul>`;
-  if (arch.length) h += `<details class="auto"><summary>${t('Al ingevoerd ({n})', { n: arch.length })}</summary><ul class="signoffs">${arch.slice(0, 50).map(row).join('')}</ul></details>`;
-  return h;
-}
 function refreshList() {
   const el = $f('#mList'); if (el) el.innerHTML = listHTML();
   const sb = $f('#mSelbar'); if (sb) sb.innerHTML = selbar();
@@ -897,7 +886,7 @@ export const actions = {
     try { await OBK().del('maint'); } catch (e) { console.warn(e); }
     A.save(); A.render(); A.toast(t('Vergrendeld – lokale MARAD-kopie gewist'));
   },
-  mView: (a) => { F.view = a.dataset.v; A.render(); },
+  mView: (a) => { if (a.dataset.v === 'done') return A.go('afvinken'); F.view = a.dataset.v; A.render(); },
   mRank: (a) => { const rs = rankSel(); const v = a.dataset.v; if (rs.has(v)) rs.delete(v); else rs.add(v); A.state.settings.rankSel = [...rs]; A.save(); sel.clear(); A.render(); },
   mRankAll: () => { A.state.settings.rankSel = []; A.save(); A.render(); },
   sgRoute: (a) => { const sg = sugBy(a.dataset.k); if (sg) makeRouteSheet({ sg, tpl: !!a.dataset.tpl }); },

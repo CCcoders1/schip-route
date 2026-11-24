@@ -5,13 +5,14 @@ import { initOil } from './oil.js';
 import { initDist } from './dist.js';
 import { initLink } from './link.js';
 import { initMaint } from './maint.js';
+import { initAfvink } from './afvink.js';
 import { shipSVG, svgPointToLoc, VIEWS } from './shipmap.js';
 import { t, tx, setTx, getLang, setLang, LANGS, LOCALES } from './i18n.js';
 import { RANK_IDS, RANK_ICON, normRank, rankLabel } from './ranks.js';
 import * as RK from './ranks.js';
 const NO_MARAD = RK.NO_MARAD || ['Bosun', 'Stagiair']; // namespace-import: geen harde fout als een oudere ranks.js in de cache staat
 
-const APP_VERSION = '1.23.0';
+const APP_VERSION = '1.24.0';
 const TEST = self.__SRTEST || {}; // alleen tests: { noSplash, noProfile }
 const OB = self.OutboxCore;
 const $ = (s, el = document) => el.querySelector(s);
@@ -107,8 +108,11 @@ const viewToggle = (act, cur) => `<div class="seg">${Object.entries(VIEWS).map((
 // ---------- render ----------
 function render() {
   applyTheme();
+  const viewer = AFV.isViewer(); document.body.classList.toggle('viewer', viewer);
+  if (viewer) view = { ...view, tab: 'afvinken', routeId: null, runId: null };
   if (!view.tab) view.tab = isCrew() ? 'routes' : 'vandaag';
-  if (isCrew() && !CREW_TABS.includes(view.tab)) view = { ...view, tab: 'routes', routeId: null, runId: null };
+  document.body.classList.toggle('wide', view.tab === 'afvinken');
+  if (isCrew() && !viewer && !CREW_TABS.includes(view.tab)) view = { ...view, tab: 'routes', routeId: null, runId: null };
   if (isCrew()) view.routeId = null;
   document.body.classList.toggle('crew', isCrew());
   $$('#nav button').forEach((b) => { b.classList.toggle('on', b.dataset.tab === view.tab); b.hidden = isCrew() || !BEHEER_TABS.includes(b.dataset.tab); });
@@ -121,7 +125,7 @@ function render() {
   const fn = {
     vandaag: viewToday, meldingen: viewMeldingen, olie: () => OIL.view(), rangen: viewRanks, verdelen: () => DIST.view(), voortgang: () => LINK.progressView(), koppelen: () => LINK.pairView(),
     routes: isCrew() ? viewCrewRoutes : view.routeId ? viewRoute : viewRoutes,
-    onderhoud: MT.view, cmarad: () => MT.crewView(),
+    onderhoud: MT.view, cmarad: () => MT.crewView(), afvinken: () => AFV.view(),
     kaart: viewMap, locaties: viewLocations,
     historie: view.runId ? viewRunDetail : viewHistory, meer: isCrew() ? viewCrewMore : viewMore,
   }[view.tab];
@@ -175,7 +179,7 @@ function viewToday() {
 function appMenu() {
   const it = (act, v, ico, label, extra = '') => `<button class="btn menuitem" data-act="${act}" ${v ? `data-v="${v}"` : ''} ${extra}>${ico} ${label}</button>`;
   openSheet(`<h2>☰ ${t('Menu')}</h2><div class="menugrid">
-    ${it('mWeekGo', '', '📅', t('Weekoverzicht'))}${it('goMaradDone', '', '⬇', t('Afgemeld voor MARAD (CSV)'))}
+    ${it('mWeekGo', '', '📅', t('Weekoverzicht'))}${it('goMaradDone', '', '✔', t('MARAD afvinken'))}
     ${it('goTab', 'kaart', '🚢', t('Kaart'))}${it('goTab', 'locaties', '📍', t('Locaties'))}
     ${it('goTab', 'historie', '📋', t('Historie (eigen rondes)'))}${it('newObs', '', '👁', t('Eigen observatie'))}
     ${it('goDist', '', '📋', t('Taken verdelen'))}${it('goProgress', '', '📊', t('Voortgang'))}${it('pairSheet', '', '🔗', t('Iemand koppelen'))}${state.maint ? '' : it('goPair', '', '📲', t('Koppelen met Beheer'))}${it('goRanks', '', '🎖', t('Rangen'))}${it('profileEdit', '', '👤', t('Profiel'))}
@@ -395,7 +399,7 @@ function viewOthers() {
   const nRes = xs.reduce((n, r) => n + r.results.length, 0), nNew = xs.filter((r) => !r.received.seenAt).reduce((n, r) => n + r.results.length, 0);
   const nProb = xs.reduce((n, r) => n + r.results.filter((x) => resultFlags(x).includes('warn')).length, 0);
   h += `<p class="ofsum">${t('{n} aftekeningen', { n: nRes })}${nNew ? ` · <b class="newc">${t('{n} nieuw', { n: nNew })}</b>` : ''}${nProb ? ` · <span class="cr">⚠ ${t('{n} met probleem', { n: nProb })}</span>` : ''}</p>`;
-  h += `<div class="row">${nNew ? `<button class="btn small" data-act="seenAll">${t('✔ Alles gezien')}</button>` : ''}<button class="btn small" data-act="goMaradDone">${t('⬇ Afgemeld voor MARAD')}</button></div>`;
+  h += `<div class="row">${nNew ? `<button class="btn small" data-act="seenAll">${t('✔ Alles gezien')}</button>` : ''}<button class="btn small" data-act="goMaradDone">✔ ${t('MARAD afvinken')}</button></div>`;
   const byP = new Map();
   for (const r of [...xs].sort((a, b) => (b.finishedAt || '').localeCompare(a.finishedAt || ''))) { const p = r.by || '?'; if (!byP.has(p)) byP.set(p, []); byP.get(p).push(r); }
   for (const [p, runs] of byP) {
@@ -849,7 +853,7 @@ const actions = {
   pfCancel: () => { closeProfile(); PF = null; },
   iosContinue: () => { const nx = sheetCtx?.next; closeSheet(); nx?.(); },
   setLang: (a) => { const L = a.dataset.v; if (L === getLang()) return closeSheet(); state.settings.lang = L; save(); setLang(L); location.reload(); },
-  closeSheet, back: () => (view.tab === 'voortgang' ? go('vandaag') : view.tab === 'koppelen' ? go(isCrew() ? 'meer' : 'vandaag') : view.tab === 'cmarad' ? go('routes') : view.tab === 'verdelen' ? (DIST.back() || (view.dist ? go('verdelen', { dist: null }) : go('vandaag'))) : view.tab === 'rangen' ? (view.rank ? go('rangen', { rank: null }) : go('vandaag')) : go(view.tab)),
+  closeSheet, back: () => (view.tab === 'voortgang' ? go('vandaag') : view.tab === 'koppelen' ? go(isCrew() ? 'meer' : 'vandaag') : view.tab === 'cmarad' ? go('routes') : view.tab === 'afvinken' ? go('vandaag') : view.tab === 'verdelen' ? (DIST.back() || (view.dist ? go('verdelen', { dist: null }) : go('vandaag'))) : view.tab === 'rangen' ? (view.rank ? go('rangen', { rank: null }) : go('vandaag')) : go(view.tab)),
   install: async () => { if (!deferredInstall) return; deferredInstall.prompt(); await deferredInstall.userChoice; deferredInstall = null; render(); },
   hideInstall: () => { state.settings.hideInstall = true; save(); render(); },
   showInstall: () => { state.settings.hideInstall = false; save(); go('routes'); },
@@ -1081,6 +1085,7 @@ document.addEventListener('visibilitychange', async () => {
 matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', applyTheme);
 
 async function checkHash() {
+  if (/#afvinken\b/.test(location.hash)) { AFV.fromHash(); closeSheet(); go('afvinken'); return; }
   try {
     const raw = location.href;
     const pkg = await readHashPayload();
@@ -1775,7 +1780,8 @@ Object.assign(actions, {
   stateExport: async () => { closeSheet(); try { const X = await import('./export.js'); await X.runExport(XA()); } catch (e) { console.warn('export', e); toast(t('Exporteren lukte niet: {msg}', { msg: e.message }), 5000); } },
   stateExportAgain: async () => { const X = await import('./export.js'); X.downloadLast(XA()); },
   stateExportShare: async () => { const X = await import('./export.js'); await X.shareLast(XA()); },
-  goMaradDone: () => { closeSheet(); MT.actions.mView({ dataset: { v: 'done' } }); go('onderhoud'); },
+  goMaradDone: () => { closeSheet(); go('afvinken'); },
+  goAfvinken: () => { closeSheet(); go('afvinken'); },
   goSug: () => { MT.actions.mView({ dataset: { v: 'sug' } }); go('onderhoud'); },
   ntfyPoll: () => pollNtfy(true),
   repClip: async () => { let txt = ''; try { txt = await navigator.clipboard.readText(); } catch { /* geen toegang */ } if (!(await handlePasted(txt))) { toast(t('Niets bruikbaars op het klembord – plak in het vak (lang indrukken → Plak).'), 4000); $('#repPaste')?.focus(); } },
@@ -1789,8 +1795,11 @@ let lastPoll = 0;
 function maybePoll() {
   if (!navigator.onLine || Date.now() - lastPoll < 20000) return;
   lastPoll = Date.now();
-  if (isCrew()) LINK.pollInbox(false); else { pollNtfy(false).then(() => LINK.syncDone()); LINK.retry().then(() => LINK.syncRankSets()); }
+  if (AFV.isViewer()) return AFV.pollViewer();
+  if (isCrew()) LINK.pollInbox(false); else { pollNtfy(false).then(() => LINK.syncDone()); LINK.retry().then(() => LINK.syncRankSets()); AFV.pollPhone(); }
 }
+// v1.24: MARAD afvinken open → laptop haalt elke 20 s de lijst op, de telefoon elke 30 s de afvinkingen van de laptop
+setInterval(() => { if (document.visibilityState !== 'visible' || view.tab !== 'afvinken' || !navigator.onLine) return; if (AFV.isViewer()) AFV.pollViewer(); else if (!isCrew()) AFV.pollPhone(); }, 20000);
 setInterval(() => { if (document.visibilityState === 'visible') maybePoll(); }, 120000);
 // v1.21: Voortgang open → elke 30 s ophalen, zodat de open tab live meeloopt (bemanning stuurt elke 20 s)
 setInterval(() => { if (document.visibilityState === 'visible' && view.tab === 'voortgang' && !isCrew() && navigator.onLine && $('#sheet').hidden) { lastPoll = Date.now(); pollNtfy(false); } }, 30000);
@@ -1813,6 +1822,9 @@ const OIL = initOil({ askProfile: (fn) => askProfile(fn), state, save, rid, esc,
 Object.assign(actions, OIL.actions);
 const LINK = initLink({ MT, state, save, esc, header, openSheet, closeSheet, toast, render: () => render(), go: (...x) => go(...x), view: () => view, rid, fmtDT, isCrew, copyText, queueQuiet, importPackage: (p, c) => importPackage(p, c), mergePlaces: (p) => mergePlaces(p), autoImportReport: (...x) => autoImportReport(...x) });
 Object.assign(actions, LINK.actions);
+const AFV = initAfvink({ MT, LINK, state, save, esc, header, toast, render: () => render(), go: (...x) => go(...x), view: () => view, rid, fmtDT, copyText, queueQuiet });
+Object.assign(actions, AFV.actions);
+actions.mEntered = () => { MT.actions.mEntered(); AFV.publish(); };
 const DIST = initDist({ LINK, state, save, toastAct, startRun: (id) => startRun(id), esc, header, openSheet, closeSheet, toast, render: () => render(), go: (...x) => go(...x), view: () => view, MT, rid, fmtDT, tx: (o, k) => tx(o, k), loc: (id) => loc(id) });
 Object.assign(actions, DIST.actions);
 
@@ -1829,7 +1841,7 @@ checkHash();
 let introDone = false;
 function intro() {
   if (introDone) return; introDone = true;
-  if (/(route|report)=/.test(location.hash) || !$('#run').hidden) return;
+  if (/(route|report)=|afvinken/.test(location.hash) || view.tab === 'afvinken' || AFV.isViewer() || !$('#run').hidden) return;
   const next = () => { if (needsProfile() && !TEST.noProfile && $('#run').hidden) openProfile({ first: true }); };
   if (isIOS() && !isStandalone() && !state.settings.hideInstall && !sessionStorage.getItem('iosHint')) { sessionStorage.setItem('iosHint', '1'); if ($('#sheet').hidden) return iosInstallSheet(next); }
   next();
@@ -1855,4 +1867,4 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   navigator.serviceWorker.register('./sw.js').then(() => (window.__swRegistered = true)).catch((e) => console.warn('SW', e));
 }
 refreshOutbox().then(() => flushNow());
-window.__app = { APP_VERSION, state, save, view: () => view, flushNow, refreshOutbox, MT, pollNtfy, LINK, isIOS, isStandalone, openProfile, go: (...x) => go(...x) };
+window.__app = { APP_VERSION, AFVpoll: () => AFV.pollPhone(), AFVpollV: () => AFV.pollViewer(), state, save, view: () => view, flushNow, refreshOutbox, MT, pollNtfy, LINK, isIOS, isStandalone, openProfile, go: (...x) => go(...x) };

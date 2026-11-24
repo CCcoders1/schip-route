@@ -19,7 +19,7 @@ let pLoaded = false;
 export function initLink(api) {
   A = api;
   self.OutboxCore?.kv.get('progress').then((v) => { if (v) { P = { seen: v.seen || {}, runs: v.runs || {} }; if (dedupeRuns()) savePg(); } pLoaded = true; if (['voortgang', 'vandaag'].includes(A.view().tab)) A.render(); }).catch(() => { pLoaded = true; });
-  return { pairView, progressView, todayBanner, actions, pollInbox, handleMgrMsg, retry, deliver, progressEvent, pairedFor, chunkItems, pairSheet, doneAfter, paired, syncDone, busyList, sentState, runIdsFor, progressPeople, reopenEvent, syncRankSets, progressData: () => P };
+  return { pairView, progressView, todayBanner, actions, pollInbox, handleMgrMsg, retry, deliver, progressEvent, pairedFor, chunkItems, pairSheet, doneAfter, paired, syncDone, busyList, sentState, runIdsFor, progressPeople, reopenEvent, syncRankSets, takeChunk, progressData: () => P };
 }
 /** Voortgang per persoon + ronde: één rij (nieuwe start / opnieuw versturen werkt die rij bij i.p.v. te stapelen). */
 const pkey = (e) => String(e.dev || e.by || '?').toLowerCase() + '|' + (e.route || e.rn || '');
@@ -83,7 +83,7 @@ export async function chunkItems(pkg, { kind, aid, ver, topic, server, title, by
 }
 /* i18n-skip-end */
 /** Stukken verzamelen; geeft het complete pakket terug zodra alle delen er zijn (anders null). */
-async function takeChunk(m) {
+export async function takeChunk(m) {
   const txt = m.message || ''; const nl = txt.indexOf('\n'); if (!txt.startsWith('SRX1 ') || nl < 0) return null;
   let h; try { h = JSON.parse(txt.slice(5, nl)); } catch { return null; }
   if (!h?.a || !h.n || !h.i) return null;
