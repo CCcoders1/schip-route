@@ -59,7 +59,7 @@ export function initMaint(api) {
   $f('#fileMarad')?.addEventListener('change', async (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) readFile(f); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.id === 'mPw') { e.preventDefault(); actions.mUnlock(); } });
   if (A.legacyMaint) migrateLegacy(A.legacyMaint);
-  return { unlockHTML: () => unlockHTML(), rankChips, distLists, distRoute, tacticalOrder, byUrgency, rankOverview, rankRoundsHTML, view, actions, applyRun, applyPending, ensureMaint, runExtra, maradFields, persist, refreshTemplates, rankNames, templateInfo, sugCount, todayHTML, weekBoard, selfSignoff, undoSignoffs, reopenSignoffs, undoReopen, signoffOf, startFixed, needsReunlock, slimDefault, weekStats, rankPack, crewView };
+  return { ideaPool, unlockHTML: () => unlockHTML(), rankChips, distLists, distRoute, tacticalOrder, byUrgency, rankOverview, rankRoundsHTML, view, actions, applyRun, applyPending, ensureMaint, runExtra, maradFields, persist, refreshTemplates, rankNames, templateInfo, sugCount, todayHTML, weekBoard, selfSignoff, undoSignoffs, reopenSignoffs, undoReopen, signoffOf, startFixed, needsReunlock, slimDefault, weekStats, rankPack, crewView };
 }
 const $f = (s) => document.querySelector(s);
 
@@ -372,6 +372,12 @@ function buildRoute(tasks, { name, assignee = '', strategy = 'kortste', fallback
 // ---------- taken verdelen (lijsten → taken → ontvanger) ----------
 /** Lijsten om te verdelen: vaste rondes (alle taken) + eigen routes. Taak-sleutel = MARAD-id of stap-id. */
 export const REST_KEY = 'fx-overig';
+/** v1.25 idee-lijstjes: alle open MARAD-taken (te laat of binnen 7 dagen) met hun vaste ronde (of Overige taken) en gebied. */
+export function ideaPool() {
+  const m = M(); if (!m?.tasks) return [];
+  allSug(); const by = new Map(); for (const sg of FX.rounds) for (const x of sg.tasks) by.set(x.id, sg.key);
+  return m.tasks.filter((x) => ['overdue', 'week'].includes(status(x))).map((x) => ({ ...distTask(x, () => true), list: by.get(x.id) || REST_KEY, deck: A.loc(x.locId)?.deck || '' }));
+}
 export const CUSTOM_KEY = 'eigen';
 const distTask = (x, soonFn) => { const c = comp(x), l = A.loc(x.locId), st = status(x); return { key: x.id, title: x.name, sub: [c ? (c.code ? c.code + ' – ' : '') + c.name : '', l ? A.tx(l, 'name') : ''].filter(Boolean).join(' · '), ranks: x.rank, st, due: x.dueDate ? fmtD(x.dueDate) : '', soon: st === 'overdue' || st === 'week' || soonFn(x), marad: x.id, dd: x.dueDate || '', loc: x.locId || '' }; };
 export function distLists() {

@@ -12,7 +12,7 @@ import { RANK_IDS, RANK_ICON, normRank, rankLabel } from './ranks.js';
 import * as RK from './ranks.js';
 const NO_MARAD = RK.NO_MARAD || ['Bosun', 'Stagiair']; // namespace-import: geen harde fout als een oudere ranks.js in de cache staat
 
-const APP_VERSION = '1.24.1';
+const APP_VERSION = '1.25.0';
 const TEST = self.__SRTEST || {}; // alleen tests: { noSplash, noProfile }
 const OB = self.OutboxCore;
 const $ = (s, el = document) => el.querySelector(s);
@@ -1879,4 +1879,4 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   navigator.serviceWorker.addEventListener('controllerchange', () => { if (hadCtl) { updReady = true; updBar(); } });
 }
 refreshOutbox().then(() => flushNow());
-window.__app = { APP_VERSION, updTest: (on = true) => { updReady = on; updBar(); }, AFVpoll: () => AFV.pollPhone(), AFVpollV: () => AFV.pollViewer(), state, save, view: () => view, flushNow, refreshOutbox, MT, pollNtfy, LINK, isIOS, isStandalone, openProfile, go: (...x) => go(...x) };
+window.__app = { APP_VERSION, ideas: () => DIST.ideas(), updTest: (on = true) => { updReady = on; updBar(); }, AFVpoll: () => AFV.pollPhone(), AFVpollV: () => AFV.pollViewer(), state, save, view: () => view, flushNow, refreshOutbox, MT, pollNtfy, LINK, isIOS, isStandalone, openProfile, go: (...x) => go(...x) };

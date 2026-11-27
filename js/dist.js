@@ -21,7 +21,7 @@ export function initDist(api) {
     if (el.dataset.pnote != null) { (P.notes ||= {})[el.dataset.pnote] = el.value; saveSoon(); }
     else if (el.dataset.ptnote != null) { const [lk, tk] = el.dataset.ptnote.split('|'); ((P.tnotes ||= {})[lk] ||= {})[tk] = el.value; saveSoon(); }
   });
-  return { view, actions, back, selfHTML, selfBusy };
+  return { view, actions, back, selfHTML, selfBusy, ideas };
 }
 let saveT = 0; const saveSoon = () => { clearTimeout(saveT); saveT = setTimeout(() => A.save(), 300); };
 const clean = (x) => String(x || '').replace(/\r/g, '').trim().slice(0, 1000);
@@ -66,6 +66,7 @@ export function view() {
   const v = A.view();
   if (!A.state.maint?.tasks && !lists().length) return A.header(t('Taken verdelen'), true) + `<section class="card"><p class="muted">${t('Ontgrendel de MARAD-gegevens om de vaste rondes te verdelen.')}</p><button class="btn primary big" data-act="mUnlockSheet">${t('🔓 Ontgrendelen')}</button></section>`;
   if (v.dist === '__send') return sendView();
+  if (v.dist === '__idea') return ideaView();
   if (v.dist === '__pre') return D().pre ? preView() : overview();
   if (v.dist) { const l = listBy(v.dist); if (l) return listView(l); }
   return overview();
@@ -80,7 +81,7 @@ function listCard(l) {
 function sentList() { return Object.entries(D().sent).filter(([k, s]) => s.list && s.rank).map(([k, s]) => ({ k, s, r: A.state.routes.find((x) => x.id === s.routeId) })).filter((x) => x.r); }
 function overview() {
   const ls = lists(), sl = sentList();
-  let h = A.header(t('Taken verdelen'), true) + `<p class="muted">${t('Open een lijst: de te late taken staan bovenaan. Tik de taken aan die je wilt meegeven en stuur de selectie naar iemand. De app bepaalt zelf de looproute over het schip.')}</p>`;
+  let h = A.header(t('Taken verdelen'), true) + topTabs('lists') + `<p class="muted">${t('Open een lijst: de te late taken staan bovenaan. Tik de taken aan die je wilt meegeven en stuur de selectie naar iemand. De app bepaalt zelf de looproute over het schip.')}</p>`;
   h += ctBar();
   if (sl.length) h += `<button class="card tap dsendbanner" data-act="distSendView">📤 <b>${t('Verstuurde lijstjes')}</b><small>${t('{a} lijstjes · {b} taken', { a: sl.length, b: sl.reduce((a, x) => a + x.r.steps.length, 0) })}</small></button>`;
   const fx = ls.filter((l) => l.kind === 'fixed'), own = ls.filter((l) => l.kind === 'route');
@@ -247,9 +248,9 @@ export function back() {
 }
 /** Eén kaart per ronde × ontvanger: naam = naam van de bronlijst, teller = aantal verstuurde taken.
  *  De aantekening (onderwerp) en de opmerkingen per taak gaan mee in het lijstje én staan bij de toewijzing. */
-function sendOne(l, who, c, note, tnotes, quiet) {
+function sendOne(l, who, c, note, tnotes, quiet, opt = {}) {
   const sel = selOf(l); if (!sel.size) return null;
-  const cu = l.kind === 'custom'; const stamp = cu ? Date.now().toString(36) : '';
+  const cu = l.kind === 'custom' || !!opt.single; const stamp = cu ? Date.now().toString(36) + (opt.single ? Math.random().toString(36).slice(2, 5) : '') : '';
   const wk = whoKey(who), key = sentKey(l, who) + (cu ? '#' + stamp : '');
   // zelfde ronde opnieuw naar dezelfde ontvanger = die kaart vervangen (andere rondes blijven staan)
   const a = (D().a[l.key] ||= {});
@@ -258,8 +259,8 @@ function sendOne(l, who, c, note, tnotes, quiet) {
   for (const k of sel) a[k] = { rank: who.rank, name: who.name, at };
   const r = A.MT.distRoute(itemsOf(l, sel), { name: l.name, assignee: who.name });
   const id = 'r-dist-' + slug(l.key) + '-' + slug(who.rank) + (who.name ? '-' + slug(who.name) : '') + (cu ? '-' + stamp : '');
-  const cuT = cu ? (D().custom?.tasks || []).filter((x) => sel.has(x.id)) : [];
-  const lname = cu && cuT.length === 1 ? '✏️ ' + cuT[0].title : l.name;
+  const cuT = l.kind === 'custom' ? (D().custom?.tasks || []).filter((x) => sel.has(x.id)) : [];
+  const lname = cuT.length === 1 ? '✏️ ' + cuT[0].title : opt.single ? '💡 ' + (opt.title || l.name) : l.name;
   Object.assign(r, { id, name: lname, tr: undefined, source: 'dist', distList: l.key, intendedRank: who.rank, intendedName: who.name, description: '' });
   if (isSelf(who)) Object.assign(r, { self: true, intendedName: myName(), assignee: myName(), stepsDone: [] });
   delete r.tr;
@@ -268,7 +269,7 @@ function sendOne(l, who, c, note, tnotes, quiet) {
   for (const st of r.steps) { const k = st.marad?.id || st.fromStep; if (k && tn[k]) st.note = tn[k]; else delete st.note; }
   const i = A.state.routes.findIndex((x) => x.id === id); if (i >= 0) A.state.routes[i] = r; else A.state.routes.push(r);
   const prev = D().sent[key] || {};
-  D().sent[key] = { ...prev, at, n: r.steps.length, routeId: id, rank: who.rank, name: who.name, list: l.key, listName: lname, ...(cu ? { custom: cuT.map((x) => x.id) } : {}), note: nt, tnotes: tn };
+  D().sent[key] = { ...prev, at, n: r.steps.length, routeId: id, rank: who.rank, name: who.name, list: l.key, listName: lname, ...(l.kind === 'custom' ? { custom: cuT.map((x) => x.id) } : {}), ...(opt.single ? { idea: 1 } : {}), note: nt, tnotes: tn };
   D().sel[l.key] = [];
   if (!r.intendedName) r.intendedName = c?.name || '';
   return { r, key };
@@ -291,6 +292,120 @@ async function sendPre() {
     <p class="${on ? 'okbox' : 'warnbox'}">${on ? t('Het lijstje komt automatisch in de app van {name}. {name} heeft internet nodig om het te ontvangen.', { name: esc(c.name) }) : t('📴 Geen internet: het lijstje staat in de outbox en gaat vanzelf weg zodra er verbinding is.')}</p>
     <p class="muted small">${t('Verstuurd in {n} bericht(en). Je ziet onder Voortgang wanneer het is ontvangen.', { n: parts })}</p>
     <div class="stack"><button class="btn primary big" data-act="closeSheet">${t('OK')}</button></div>`);
+}
+
+// ---------- v1.25: idee-lijstjes (per gekoppeld persoon, bootsman vandaag, voor mij) ----------
+const topTabs = (on) => `<div class="seg ideatabs"><button class="${on === 'lists' ? 'on' : ''}" data-act="distTop" data-v="lists">📋 ${t('Lijsten')}</button><button class="${on === 'idea' ? 'on' : ''}" data-act="distTop" data-v="idea">💡 ${t('Idee-lijstjes')}</button></div>`;
+const ST_SET = ['Chief Officer', 'Marof', 'Engineer', 'Junior engineer']; // stagiair: dek, veiligheid en machinekamer (geen kapitein/2e stuurman-taken)
+const OUT = ['dek', 'ruim', 'voor'];
+const IDEA_MAX = 12;
+const dayKey = () => today();
+/** Wie krijgt een idee-lijstje: gekoppelde mensen (niet de kapitein), altijd de bootsman, en ikzelf. */
+function ideaPeople() {
+  const cs = A.LINK.paired().filter((c) => RANK_IDS.includes(normRank(c.func)) && normRank(c.func) !== 'Master');
+  const ord = ['Stagiair', 'Engineer', 'Junior engineer', 'Marof', 'Chief Officer', 'Bosun', '2nd Officer'];
+  const ps = cs.map((c) => ({ key: 'c:' + c.id, rank: normRank(c.func), name: c.name, c, kind: normRank(c.func) === 'Bosun' ? 'bosun' : normRank(c.func) === 'Stagiair' ? 'stagiair' : 'rank' }))
+    .sort((a, b) => ord.indexOf(a.rank) - ord.indexOf(b.rank) || a.name.localeCompare(b.name));
+  if (!ps.some((p) => p.kind === 'bosun')) { const i = ps.findIndex((p) => p.rank === '2nd Officer'); ps.splice(i < 0 ? ps.length : i, 0, { key: 'bosun', rank: 'Bosun', name: '', c: null, kind: 'bosun' }); }
+  ps.push({ key: 'self', rank: SELF, name: '', c: null, kind: 'self' });
+  return ps;
+}
+const myRankI = () => normRank(A.state.settings.myRank) || 'Engineer';
+/** Past deze taak bij deze persoon? 0 = nee; hoger = beter. */
+function fit(p, x) {
+  const rk = normRanks(x.ranks);
+  if (p.kind === 'bosun') return x.custom ? 3 : (OUT.includes(x.deck) && rk.some((r) => ['Marof', 'Chief Officer', 'Bosun'].includes(r)) ? 3 : 0);
+  if (x.custom) return 0;
+  if (p.kind === 'stagiair') return rk.some((r) => ST_SET.includes(r)) ? (x.deck === 'mk' ? 1 : 2) : 0;
+  if (p.kind === 'self') return rk.includes(myRankI()) ? (x.deck === 'mk' ? 3 : 2) : 0;
+  return rk.includes(p.rank) ? (rk.length === 1 ? 3 : 2) : 0;
+}
+/** Bronlijst van een taak (vaste ronde, Overige taken of Eigen taken) – voor toewijzen en versturen. */
+function srcList(x) {
+  const l = listBy(x.list); if (l && l.tasks.some((y) => y.key === x.key)) return l;
+  if (l && l.kind !== 'rest') return { ...l, tasks: [...l.tasks, x] };
+  const r = l || { key: x.list, kind: 'rest', icon: '🗂', name: t('Overige taken'), tasks: [] };
+  return { ...r, tasks: [...r.tasks.filter((y) => y.key !== x.key), x] };
+}
+const busyIdea = (x) => { const l = srcList(x); const a = assignOf(l, x); return (a && !doneOf(l, x)) || !!doneToday(x); };
+/** Slim verdelen: te laat (oudste eerst), dan binnen 7 dagen; elke taak bij de best passende persoon, max. ~12 per lijstje; nooit dubbel. */
+function ideas() {
+  const ps = ideaPeople(); const out = Object.fromEntries(ps.map((p) => [p.key, []]));
+  const sk = D().ideaSkip?.day === dayKey() ? new Set(D().ideaSkip.ids || []) : new Set();
+  const cus = listBy('eigen'); const custom = (cus?.tasks || []).filter((x) => !assignOf(cus, x)).map((x) => ({ ...x, list: 'eigen', deck: A.loc(x.loc)?.deck || '' }));
+  const pool = [...(A.MT.ideaPool?.() || []).sort((a, b) => (a.st === 'overdue' ? 0 : 1) - (b.st === 'overdue' ? 0 : 1) || String(a.dd || '9999').localeCompare(String(b.dd || '9999'))), ...custom]
+    .filter((x) => !busyIdea(x));
+  const pass = (useSkip, only = null) => { for (const x of pool) {
+    if (useSkip && sk.has(x.key)) continue; if (ps.some((p) => out[p.key].some((y) => y.key === x.key))) continue;
+    let best = null, bs = 0; for (const p of ps) { if (only && !only.has(p.key)) continue; const f = fit(p, x); const n = out[p.key].length; if (!f || n >= IDEA_MAX) continue; if (f > bs || (f === bs && n < out[best.key].length)) { best = p; bs = f; } }
+    if (best) out[best.key].push(x);
+  } };
+  pass(true); if (sk.size) { const empty = new Set(ps.filter((p) => !out[p.key].length).map((p) => p.key)); if (empty.size) pass(false, empty); }
+  // looproute: per gebied/plek in de volgorde van het schip
+  const LI = new Map(A.state.locations.map((y, i) => [y.id, i]));
+  for (const k of Object.keys(out)) out[k].sort((a, b) => (LI.get(a.loc) ?? 1e6) - (LI.get(b.loc) ?? 1e6) || String(a.dd || '9999').localeCompare(String(b.dd || '9999')));
+  return { ps, out };
+}
+const ideaWho = (p) => (p.kind === 'self' ? { rank: SELF, name: '' } : { rank: p.rank, name: p.name });
+const ideaLabel = (p) => (p.kind === 'self' ? '🙋 ' + t('Voor mij vandaag') : p.kind === 'bosun' ? '⚒️ ' + t('Bootsman vandaag') + (p.name ? ' · ' + p.name : '') : `${RANK_ICON[p.rank] || '👤'} ${p.name}`);
+function reasonOf(x) {
+  if (x.custom) return ['', t('Eigen taak')];
+  const d = x.dd ? Math.round((new Date(x.dd + 'T12:00:00') - new Date(today() + 'T12:00:00')) / 864e5) : null;
+  if (x.st === 'overdue') return ['red', d != null ? t('{n} d te laat', { n: -d }) : t('Te laat')];
+  return ['orange', d == null ? t('Binnen 7 dagen') : d === 0 ? t('vandaag') : t('over {n} d', { n: d })];
+}
+function ideaView() {
+  const v = A.view(); const { ps, out } = ideas();
+  const p = ps.find((x) => x.key === v.idea) || ps[0]; const xs = out[p.key] || [];
+  const sel = new Set((D().ideaSel?.[p.key] || []).filter((k) => xs.some((x) => x.key === k)));
+  const sentToday = Object.values(D().sent).filter((x) => x.idea && dayOf(x.at) === today() && x.rank === p.rank && (p.kind === 'bosun' && !p.name ? true : x.name === p.name)).length;
+  let h = A.header(t('Taken verdelen'), true) + topTabs('idea');
+  h += `<div class="chips ideappl">${ps.map((q) => `<button class="chip ${q.key === p.key ? 'on' : ''}" data-act="ideaWho" data-v="${esc(q.key)}">${esc(ideaLabel(q))} <b>${(out[q.key] || []).length}</b></button>`).join('')}</div>`;
+  const desc = p.kind === 'self' ? t('Taken die bij jouw functie passen; machinekamer-taken gaan voor. Aangevinkte taken komen in je Vandaag (bovenaan Rondes).') : p.kind === 'bosun' ? t('Klusjes op dek, in het ruim en op het voorschip, plus je eigen taken. Aangevinkte taken gaan één voor één naar de bootsman.') : t('Voorstel uit MARAD: te laat eerst, dan binnen 7 dagen, passend bij zijn functie en nog bij niemand. Aangevinkte taken gaan één voor één naar zijn app.');
+  h += `<p class="muted small">💡 ${desc}${sentToday ? ` <span class="tag green">📤 ${t('vandaag {n} los verstuurd', { n: sentToday })}</span>` : ''}</p>`;
+  if (!p.c && p.kind === 'bosun') h += `<p class="warnbox small">${t('Nog geen bootsman gekoppeld – koppel hem eerst om de taken direct in zijn app te zetten.')} <button class="btn small" data-act="pairSheet">🔗 ${t('Iemand koppelen')}</button></p>`;
+  h += `<div class="row dselbar"><span class="dselcount"><b>${t('{n} geselecteerd', { n: sel.size })}</b></span><button class="btn small ghost" data-act="ideaAll">${t('Alles')}</button><button class="btn small ghost" data-act="ideaNone">${t('Niets')}</button><button class="btn small" data-act="ideaNew">🔄 ${t('Vernieuw ideeën')}</button></div>`;
+  h += '<div class="dtasks idealist">';
+  if (!xs.length) h += `<p class="empty">${A.state.maint?.tasks ? t('Geen ideeën – alles is al verdeeld of niet aan de beurt.') : t('Ontgrendel de MARAD-gegevens om ideeën te krijgen.')}</p>`;
+  let lastLoc = null;
+  for (const x of xs) {
+    if (x.loc !== lastLoc) { lastLoc = x.loc; const lo = A.loc(x.loc); h += `<h4 class="dlocsec">📍 ${esc(lo ? A.tx(lo, 'name') : t('Geen locatie'))}</h4>`; }
+    const on = sel.has(x.key); const [cls, why] = reasonOf(x);
+    h += `<div class="dtask ${on ? 'sel' : ''} st-${stOf(x)}" role="checkbox" tabindex="0" aria-checked="${on}" data-act="ideaTog" data-t="${esc(x.key)}"><span class="dchk">${on ? '✔' : ''}</span><div class="dt-body"><b>${esc(x.title)}</b><small>${esc(x.sub)}${x.due ? ` · 📅 ${esc(x.due)}` : ''}</small><span class="dtags"><span class="tag ${cls}">${esc(why)}</span></span></div></div>`;
+  }
+  h += '</div>';
+  const n = sel.size; const who = p.kind === 'self' ? '' : p.name || t('bootsman');
+  h += `<div class="dfoot"><div class="dfoot-row">${p.kind === 'self'
+    ? `<button class="btn primary big" data-act="ideaSend" ${n ? '' : 'disabled'}>🙋 ${t('In mijn Vandaag zetten ({n})', { n })}</button>`
+    : `<button class="btn primary big" data-act="ideaSend" ${n && p.c ? '' : 'disabled'}>📤 ${t('{n} taken los naar {name}', { n, name: esc(who) })}</button>`}</div></div>`;
+  return h;
+}
+async function ideaSend() {
+  const v = A.view(); const { ps, out } = ideas(); const p = ps.find((x) => x.key === v.idea) || ps[0];
+  const keys = new Set(D().ideaSel?.[p.key] || []); const xs = (out[p.key] || []).filter((x) => keys.has(x.key)); if (!xs.length) return;
+  const keep = JSON.parse(JSON.stringify(D().sel));
+  if (p.kind === 'self') {
+    const by = new Map(); for (const x of xs) { const l = srcList(x); if (!by.has(l.key)) by.set(l.key, l); }
+    for (const k of by.keys()) D().sel[k] = xs.filter((x) => srcList(x).key === k).map((x) => x.key);
+    const done = []; for (const l of by.values()) { const x = sendOne(l, { rank: SELF, name: '' }, null, '', {}, true, { single: true, title: l.name }); if (x) { Object.assign(D().sent[x.key], { via: 'self', ver: Date.now(), name: '' }); done.push(x); } }
+    for (const [k, v_] of Object.entries(keep)) if (!by.has(k)) D().sel[k] = v_; else D().sel[k] = (v_ || []).filter((y) => !keys.has(y));
+    (D().ideaSel ||= {})[p.key] = []; A.save(); A.render();
+    A.openSheet(`<h2>🙋 ${t('In je Rondes gezet')}</h2><ul class="present">${done.map(({ r }) => `<li><b>${esc(A.tx(r, 'name'))}</b><small>${t('{n} taken', { n: r.steps.length })}</small></li>`).join('')}</ul>
+      <p class="okbox">${t('Staat bovenaan je Rondes onder Vandaag. Start het als ronde of vink taken direct af.')}</p><div class="stack"><button class="btn primary big" data-act="selfGo">🧭 ${t('Naar Rondes')}</button><button class="btn ghost" data-act="closeSheet">${t('OK')}</button></div>`, { selfSent: true });
+    return;
+  }
+  const c = p.c; if (!c) return needPair(ideaWho(p));
+  const who = ideaWho(p); const done = [];
+  for (const x of xs) { const l = srcList(x); D().sel[l.key] = [x.key]; const r = sendOne(l, who, c, '', {}, true, { single: true, title: x.title }); if (r) done.push(r); }
+  for (const [k, v_] of Object.entries(keep)) D().sel[k] = (v_ || []).filter((y) => !keys.has(y));
+  for (const k of Object.keys(D().sel)) if (!(k in keep)) D().sel[k] = [];
+  (D().ideaSel ||= {})[p.key] = []; A.save(); A.render();
+  let parts = 0; for (const { r, key } of done) parts += await A.LINK.deliver(r, c, key, { quiet: true });
+  const on = navigator.onLine;
+  A.openSheet(`<h2>📬 ${t('{n} losse taken naar {name}', { n: done.length, name: esc(c.name) })}</h2>
+    <ul class="present">${done.map(({ r }) => `<li><b>${esc(A.tx(r, 'name'))}</b><small>${esc(r.steps[0] ? A.tx(r.steps[0], 'title') : '')}</small></li>`).join('')}</ul>
+    <p class="${on ? 'okbox' : 'warnbox'}">${on ? t('Elke taak komt als eigen opdracht in de app van {name}.', { name: esc(c.name) }) : t('📴 Geen internet: het lijstje staat in de outbox en gaat vanzelf weg zodra er verbinding is.')}</p>
+    <p class="muted small">${t('Verstuurd in {n} bericht(en). Je ziet onder Voortgang wanneer het is ontvangen.', { n: parts })}</p><div class="stack"><button class="btn primary big" data-act="closeSheet">${t('OK')}</button></div>`);
 }
 
 // ---------- lijstje voor mezelf (v1.17) ----------
@@ -564,6 +679,14 @@ export const actions = {
     document.querySelector('#toast').hidden = true; const y = scrollY; A.render(); scrollTo(0, y);
     if (n) A.toast(n === 1 ? t('1 afvinking ongedaan gemaakt') : t('{n} afvinkingen ongedaan gemaakt', { n }));
   },
+  distTop: (a) => A.go('verdelen', { dist: a.dataset.v === 'idea' ? '__idea' : null }),
+  ideaWho: (a) => { A.go('verdelen', { dist: '__idea', idea: a.dataset.v }); },
+  ideaTog: (a) => { const k = A.view().idea || ideas().ps[0].key; const s_ = new Set((D().ideaSel ||= {})[k] || []); const id = a.dataset.t; if (s_.has(id)) s_.delete(id); else s_.add(id); D().ideaSel[k] = [...s_]; A.save(); const y = scrollY; A.render(); scrollTo(0, y); },
+  ideaAll: () => { const I = ideas(); const p = I.ps.find((x) => x.key === A.view().idea) || I.ps[0]; (D().ideaSel ||= {})[p.key] = (I.out[p.key] || []).map((x) => x.key); A.save(); A.render(); },
+  ideaNone: () => { const I = ideas(); const p = I.ps.find((x) => x.key === A.view().idea) || I.ps[0]; (D().ideaSel ||= {})[p.key] = []; A.save(); A.render(); },
+  ideaNew: () => { const I = ideas(); const p = I.ps.find((x) => x.key === A.view().idea) || I.ps[0]; const keep = new Set(D().ideaSel?.[p.key] || []);
+    const sk = D().ideaSkip?.day === dayKey() ? D().ideaSkip : (D().ideaSkip = { day: dayKey(), ids: [] }); for (const x of I.out[p.key] || []) if (!keep.has(x.key) && !sk.ids.includes(x.key)) sk.ids.push(x.key); A.save(); A.render(); A.toast(t('Nieuwe ideeën')); },
+  ideaSend: () => ideaSend(),
   goDist: () => { A.closeSheet(); A.go('verdelen', { dist: null }); },
   distOpen: (a) => A.go('verdelen', { dist: a.dataset.k }),
   distSendView: () => A.go('verdelen', { dist: '__send' }),

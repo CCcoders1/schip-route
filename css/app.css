@@ -743,3 +743,8 @@ textarea.aflink { font-family: ui-monospace, monospace; font-size: .85rem; word-
 .aft .afcp { font-size: .8rem; opacity: .45; }
 .aft.copied, .afc code.copied { background: rgba(42,157,92,.22); }
 .afc code { cursor: copy; }
+/* v1.25 idee-lijstjes */
+.ideatabs { margin: 4px 0 10px; }
+.ideatabs button { font-weight: 700; }
+.ideappl { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 8px; }
+.ideappl .chip b { margin-left: 4px; background: rgba(127,127,127,.18); border-radius: 999px; padding: 0 7px; }
